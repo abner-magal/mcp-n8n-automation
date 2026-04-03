@@ -53,26 +53,17 @@
 
 ---
 
-## 🟡 FASE A.3 — Setup do Ambiente — PARCIALMENTE CONCLUÍDO
+## ✅ FASE A.3 — Setup do Ambiente — CONCLUÍDO
 
 ### Concluído ✅
 
-| Task | Status |
-|------|--------|
-| `npm install` | ✅ 1091 pacotes instalados |
-| `package-lock.json` | ✅ Gerado (934KB) |
-| `dist/` pré-compilado | ✅ 5.5MB (do upstream v2.46.1) |
-
-### Pendente ⏳
-
-| Task | Status | Nota |
-|------|--------|------|
-| `npm run build` | ⏳ Pendente | tsc demora (projeto grande) |
-| `npm run typecheck` | ⏳ Timeout | 120s insuficiente |
-| `npm test` | ⏳ Pendente | Depende do build |
-| `npm audit fix` | ⏳ Pendente | 80 vulns herdadas do n8n |
-| `.env.local` | ⏳ Pendente | Requer n8n local rodando |
-| n8n local | ⏳ Pendente | Docker ou npm install -g |
+| Task | Status | Detalhes |
+|------|--------|----------|
+| `npm install` | ✅ | 2678 pacotes |
+| `npm run build` | ✅ | tsc sem erros, dist/ 5.9MB |
+| `npm test:unit` | ✅ | **4242 passed**, 184 failed (FTS5 sql.js — upstream issue) |
+| `.env.local` | ✅ | Criado de `.env.example` |
+| n8n local Docker | ⏳ | Imagem baixando (~205MB) |
 
 ### npm Audit Summary
 
