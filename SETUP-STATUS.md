@@ -89,14 +89,65 @@
 
 ---
 
-## 🔷 Próximos Passos
+## 🔷 FASE B — Correções de Segurança (#604, #509) — CONCLUÍDO
 
-1. **Build:** `npm run build` (pode demorar 2-5 min)
-2. **Testes:** `npm run test:unit`
-3. **n8n local:** `docker run -d -p 5678:5678 n8nio/n8n`
-4. **`.env.local`:** Criar com API key do n8n local
-5. **CI local:** `npm run lint && npm test && npm run build`
+### Issue #604 — WWW-Authenticate Header ✅ CORRIGIDA
+
+**Problema:** Servidor retornava 401 sem header `WWW-Authenticate: Bearer`, violando RFC 8414/9728.
+
+**Correção aplicada em 3 locais:**
+
+| Arquivo | Linha | Descrição |
+|---------|-------|-----------|
+| `src/http-server.ts` | 310, 330, 356 | `res.setHeader('WWW-Authenticate', 'Bearer')` em todos os 401 |
+| `src/http-server-single-session.ts` | 329, 339 | Mesmo padrão em `authenticateRequest()` |
+
+**Arquivos modificados:**
+- `src/http-server.ts` (3 inserções)
+- `src/http-server-single-session.ts` (2 inserções)
 
 ---
 
-*Última atualização: 03 Abr 2026 19:20*
+### Issue #509 — AUTH_* Variáveis Ignoradas ✅ CORRIGIDA
+
+**Problema:** `AUTH_ENABLED=false`, `RATE_LIMIT_ENABLED`, `AUTH_MAX_ATTEMPTS` eram ignorados.
+
+**Correções aplicadas:**
+
+| Variável | Comportamento Antes | Comportamento Após |
+|----------|---------------------|-------------------|
+| `AUTH_ENABLED=false` | Ignorado, auth sempre obrigatória | Pula validação de token, permite acesso sem auth |
+| `RATE_LIMIT_ENABLED=false` | Rate limit sempre ativo | Middleware condicional — bypass se false |
+| `AUTH_MAX_ATTEMPTS` | Hardcoded para 20 | Respeita `process.env.AUTH_RATE_LIMIT_MAX` |
+
+**Arquivos modificados:**
+- `src/http-server.ts` — `validateEnvironment()` verifica `AUTH_ENABLED`
+- `src/http-server-single-session.ts` — `validateEnvironment()` + `authenticateRequest()` + rate limiter condicional
+
+---
+
+### Build & Testes
+
+| Check | Resultado |
+|-------|-----------|
+| `tsc -p tsconfig.build.json` | ✅ Sem erros |
+| `npm test:unit` | ✅ 4242 passed (mesmo baseline) |
+| Git push | ✅ Commit 9ef7c28 |
+
+### Commit
+```
+fix: add WWW-Authenticate header to 401 responses (issue #604) 
+     and respect AUTH_ENABLED/RATE_LIMIT_ENABLED env vars (issue #509)
+```
+
+---
+
+## 🔷 Próximos Passos
+
+1. **PR upstream:** Submeter correções para czlonkowski/n8n-mcp
+2. **Tools Core:** Implementar novas tools (docs fallback, IA)
+3. **n8n local:** Aguardar Docker completar pull da imagem
+
+---
+
+*Última atualização: 03 Abr 2026 20:30*
