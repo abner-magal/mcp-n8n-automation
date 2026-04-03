@@ -316,6 +316,11 @@ export class SingleSessionHTTPServer {
    * (and the response has already been sent with a 401 status).
    */
   private authenticateRequest(req: express.Request, res: express.Response): boolean {
+    // Skip authentication if AUTH_ENABLED=false
+    if (process.env.AUTH_ENABLED === 'false') {
+      return true;
+    }
+
     const authHeader = req.headers.authorization;
 
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -325,6 +330,7 @@ export class SingleSessionHTTPServer {
         userAgent: req.get('user-agent'),
         reason
       });
+      res.setHeader('WWW-Authenticate', 'Bearer');
       res.status(401).json({
         jsonrpc: '2.0',
         error: { code: -32001, message: 'Unauthorized' },
@@ -342,6 +348,7 @@ export class SingleSessionHTTPServer {
         userAgent: req.get('user-agent'),
         reason: 'invalid_token'
       });
+      res.setHeader('WWW-Authenticate', 'Bearer');
       res.status(401).json({
         jsonrpc: '2.0',
         error: { code: -32001, message: 'Unauthorized' },
@@ -454,45 +461,55 @@ export class SingleSessionHTTPServer {
    * Validate required environment variables
    */
   private validateEnvironment(): void {
+    // Check if authentication should be enabled
+    const authEnabled = process.env.AUTH_ENABLED !== 'false';
+
     // Load auth token from env var or file
-    this.authToken = this.loadAuthToken();
-    
-    if (!this.authToken || this.authToken.trim() === '') {
-      const message = 'No authentication token found or token is empty. Set AUTH_TOKEN environment variable or AUTH_TOKEN_FILE pointing to a file containing the token.';
+    this.authToken = authEnabled ? this.loadAuthToken() : null;
+
+    if (authEnabled && (!this.authToken || this.authToken.trim() === '')) {
+      const message = 'No authentication token found or token is empty. Set AUTH_TOKEN environment variable or AUTH_TOKEN_FILE pointing to a file containing the token. Set AUTH_ENABLED=false to disable authentication (testing only).';
       logger.error(message);
       throw new Error(message);
     }
-    
-    // Update authToken to trimmed version
-    this.authToken = this.authToken.trim();
-    
-    if (this.authToken.length < 32) {
-      logger.warn('AUTH_TOKEN should be at least 32 characters for security');
+
+    if (!authEnabled) {
+      logger.warn('Authentication is DISABLED (AUTH_ENABLED=false). This is insecure for production use.');
+      this.authToken = null;
     }
-    
-    // Check for default token and show prominent warnings
-    const isDefaultToken = this.authToken === 'REPLACE_THIS_AUTH_TOKEN_32_CHARS_MIN_abcdefgh';
-    const isProduction = process.env.NODE_ENV === 'production';
-    
-    if (isDefaultToken) {
-      if (isProduction) {
-        const message = 'CRITICAL SECURITY ERROR: Cannot start in production with default AUTH_TOKEN. Generate secure token: openssl rand -base64 32';
-        logger.error(message);
-        console.error('\n🚨 CRITICAL SECURITY ERROR 🚨');
-        console.error(message);
-        console.error('Set NODE_ENV to development for testing, or update AUTH_TOKEN for production\n');
-        throw new Error(message);
+
+    // Update authToken to trimmed version
+    if (this.authToken) {
+      this.authToken = this.authToken.trim();
+
+      if (this.authToken.length < 32) {
+        logger.warn('AUTH_TOKEN should be at least 32 characters for security');
       }
-      
-      logger.warn('⚠️ SECURITY WARNING: Using default AUTH_TOKEN - CHANGE IMMEDIATELY!');
-      logger.warn('Generate secure token with: openssl rand -base64 32');
-      
-      // Only show console warnings in HTTP mode
-      if (process.env.MCP_MODE === 'http') {
-        console.warn('\n⚠️  SECURITY WARNING ⚠️');
-        console.warn('Using default AUTH_TOKEN - CHANGE IMMEDIATELY!');
-        console.warn('Generate secure token: openssl rand -base64 32');
-        console.warn('Update via Railway dashboard environment variables\n');
+
+      // Check for default token and show prominent warnings
+      const isDefaultToken = this.authToken === 'REPLACE_THIS_AUTH_TOKEN_32_CHARS_MIN_abcdefgh';
+      const isProduction = process.env.NODE_ENV === 'production';
+
+      if (isDefaultToken) {
+        if (isProduction) {
+          const message = 'CRITICAL SECURITY ERROR: Cannot start in production with default AUTH_TOKEN. Generate secure token: openssl rand -base64 32';
+          logger.error(message);
+          console.error('\n🚨 CRITICAL SECURITY ERROR 🚨');
+          console.error(message);
+          console.error('Set NODE_ENV to development for testing, or update AUTH_TOKEN for production\n');
+          throw new Error(message);
+        }
+
+        logger.warn('⚠️ SECURITY WARNING: Using default AUTH_TOKEN - CHANGE IMMEDIATELY!');
+        logger.warn('Generate secure token with: openssl rand -base64 32');
+
+        // Only show console warnings in HTTP mode
+        if (process.env.MCP_MODE === 'http') {
+          console.warn('\n⚠️  SECURITY WARNING ⚠️');
+          console.warn('Using default AUTH_TOKEN - CHANGE IMMEDIATELY!');
+          console.warn('Generate secure token: openssl rand -base64 32');
+          console.warn('Update via Railway dashboard environment variables\n');
+        }
       }
     }
   }
@@ -1122,7 +1139,9 @@ export class SingleSessionHTTPServer {
     // SECURITY: Rate limiting for authentication endpoints
     // Prevents brute force attacks and DoS
     // See: https://github.com/czlonkowski/n8n-mcp/issues/265 (HIGH-02)
-    const authLimiter = rateLimit({
+    // See: https://github.com/czlonkowski/n8n-mcp/issues/509 (RATE_LIMIT_ENABLED)
+    const rateLimitEnabled = process.env.RATE_LIMIT_ENABLED !== 'false';
+    const authLimiter = rateLimitEnabled ? rateLimit({
       windowMs: parseInt(process.env.AUTH_RATE_LIMIT_WINDOW || '900000'), // 15 minutes
       max: parseInt(process.env.AUTH_RATE_LIMIT_MAX || '20'), // 20 authentication attempts per IP
       message: {
@@ -1133,9 +1152,9 @@ export class SingleSessionHTTPServer {
         },
         id: null
       },
-      standardHeaders: true, // Return rate limit info in `RateLimit-*` headers
-      legacyHeaders: false, // Disable `X-RateLimit-*` headers
-      skipSuccessfulRequests: true, // Only count failed auth attempts (#617)
+      standardHeaders: true,
+      legacyHeaders: false,
+      skipSuccessfulRequests: true,
       handler: (req, res) => {
         logger.warn('Rate limit exceeded', {
           ip: req.ip,
@@ -1151,7 +1170,7 @@ export class SingleSessionHTTPServer {
           id: null
         });
       }
-    });
+    }) : ((req: express.Request, res: express.Response, next: express.NextFunction) => next());
 
     // Legacy SSE stream endpoint (protocol version 2024-11-05)
     // DEPRECATED: SSE transport is deprecated in MCP SDK v1.x and removed in v2.x.

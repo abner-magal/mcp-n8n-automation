@@ -42,7 +42,17 @@ function loadAuthToken() {
     return null;
 }
 function validateEnvironment() {
-    authToken = loadAuthToken();
+    const authEnabled = process.env.AUTH_ENABLED !== 'false';
+    authToken = authEnabled ? loadAuthToken() : null;
+    if (authEnabled && (!authToken || authToken.trim() === '')) {
+        const message = 'No authentication token found or token is empty. Set AUTH_TOKEN environment variable or AUTH_TOKEN_FILE pointing to a file containing the token. Set AUTH_ENABLED=false to disable authentication (testing only).';
+        logger_1.logger.error(message);
+        throw new Error(message);
+    }
+    if (!authEnabled) {
+        logger_1.logger.warn('Authentication is DISABLED (AUTH_ENABLED=false). This is insecure for production use.');
+        authToken = null;
+    }
     if (!authToken || authToken.trim() === '') {
         logger_1.logger.error('No authentication token found or token is empty');
         console.error('ERROR: AUTH_TOKEN is required for HTTP mode and cannot be empty');
@@ -220,6 +230,7 @@ async function startFixedHTTPServer() {
                 userAgent: req.get('user-agent'),
                 reason: 'no_auth_header'
             });
+            res.setHeader('WWW-Authenticate', 'Bearer');
             res.status(401).json({
                 jsonrpc: '2.0',
                 error: {
@@ -237,6 +248,7 @@ async function startFixedHTTPServer() {
                 reason: 'invalid_auth_format',
                 headerPrefix: authHeader.substring(0, Math.min(authHeader.length, 10)) + '...'
             });
+            res.setHeader('WWW-Authenticate', 'Bearer');
             res.status(401).json({
                 jsonrpc: '2.0',
                 error: {
@@ -256,6 +268,7 @@ async function startFixedHTTPServer() {
                 userAgent: req.get('user-agent'),
                 reason: 'invalid_token'
             });
+            res.setHeader('WWW-Authenticate', 'Bearer');
             res.status(401).json({
                 jsonrpc: '2.0',
                 error: {

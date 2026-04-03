@@ -170,6 +170,9 @@ class SingleSessionHTTPServer {
         }
     }
     authenticateRequest(req, res) {
+        if (process.env.AUTH_ENABLED === 'false') {
+            return true;
+        }
         const authHeader = req.headers.authorization;
         if (!authHeader || !authHeader.startsWith('Bearer ')) {
             const reason = !authHeader ? 'no_auth_header' : 'invalid_auth_format';
@@ -178,6 +181,7 @@ class SingleSessionHTTPServer {
                 userAgent: req.get('user-agent'),
                 reason
             });
+            res.setHeader('WWW-Authenticate', 'Bearer');
             res.status(401).json({
                 jsonrpc: '2.0',
                 error: { code: -32001, message: 'Unauthorized' },
@@ -193,6 +197,7 @@ class SingleSessionHTTPServer {
                 userAgent: req.get('user-agent'),
                 reason: 'invalid_token'
             });
+            res.setHeader('WWW-Authenticate', 'Bearer');
             res.status(401).json({
                 jsonrpc: '2.0',
                 error: { code: -32001, message: 'Unauthorized' },
@@ -268,34 +273,41 @@ class SingleSessionHTTPServer {
         return null;
     }
     validateEnvironment() {
-        this.authToken = this.loadAuthToken();
-        if (!this.authToken || this.authToken.trim() === '') {
-            const message = 'No authentication token found or token is empty. Set AUTH_TOKEN environment variable or AUTH_TOKEN_FILE pointing to a file containing the token.';
+        const authEnabled = process.env.AUTH_ENABLED !== 'false';
+        this.authToken = authEnabled ? this.loadAuthToken() : null;
+        if (authEnabled && (!this.authToken || this.authToken.trim() === '')) {
+            const message = 'No authentication token found or token is empty. Set AUTH_TOKEN environment variable or AUTH_TOKEN_FILE pointing to a file containing the token. Set AUTH_ENABLED=false to disable authentication (testing only).';
             logger_1.logger.error(message);
             throw new Error(message);
         }
-        this.authToken = this.authToken.trim();
-        if (this.authToken.length < 32) {
-            logger_1.logger.warn('AUTH_TOKEN should be at least 32 characters for security');
+        if (!authEnabled) {
+            logger_1.logger.warn('Authentication is DISABLED (AUTH_ENABLED=false). This is insecure for production use.');
+            this.authToken = null;
         }
-        const isDefaultToken = this.authToken === 'REPLACE_THIS_AUTH_TOKEN_32_CHARS_MIN_abcdefgh';
-        const isProduction = process.env.NODE_ENV === 'production';
-        if (isDefaultToken) {
-            if (isProduction) {
-                const message = 'CRITICAL SECURITY ERROR: Cannot start in production with default AUTH_TOKEN. Generate secure token: openssl rand -base64 32';
-                logger_1.logger.error(message);
-                console.error('\n🚨 CRITICAL SECURITY ERROR 🚨');
-                console.error(message);
-                console.error('Set NODE_ENV to development for testing, or update AUTH_TOKEN for production\n');
-                throw new Error(message);
+        if (this.authToken) {
+            this.authToken = this.authToken.trim();
+            if (this.authToken.length < 32) {
+                logger_1.logger.warn('AUTH_TOKEN should be at least 32 characters for security');
             }
-            logger_1.logger.warn('⚠️ SECURITY WARNING: Using default AUTH_TOKEN - CHANGE IMMEDIATELY!');
-            logger_1.logger.warn('Generate secure token with: openssl rand -base64 32');
-            if (process.env.MCP_MODE === 'http') {
-                console.warn('\n⚠️  SECURITY WARNING ⚠️');
-                console.warn('Using default AUTH_TOKEN - CHANGE IMMEDIATELY!');
-                console.warn('Generate secure token: openssl rand -base64 32');
-                console.warn('Update via Railway dashboard environment variables\n');
+            const isDefaultToken = this.authToken === 'REPLACE_THIS_AUTH_TOKEN_32_CHARS_MIN_abcdefgh';
+            const isProduction = process.env.NODE_ENV === 'production';
+            if (isDefaultToken) {
+                if (isProduction) {
+                    const message = 'CRITICAL SECURITY ERROR: Cannot start in production with default AUTH_TOKEN. Generate secure token: openssl rand -base64 32';
+                    logger_1.logger.error(message);
+                    console.error('\n🚨 CRITICAL SECURITY ERROR 🚨');
+                    console.error(message);
+                    console.error('Set NODE_ENV to development for testing, or update AUTH_TOKEN for production\n');
+                    throw new Error(message);
+                }
+                logger_1.logger.warn('⚠️ SECURITY WARNING: Using default AUTH_TOKEN - CHANGE IMMEDIATELY!');
+                logger_1.logger.warn('Generate secure token with: openssl rand -base64 32');
+                if (process.env.MCP_MODE === 'http') {
+                    console.warn('\n⚠️  SECURITY WARNING ⚠️');
+                    console.warn('Using default AUTH_TOKEN - CHANGE IMMEDIATELY!');
+                    console.warn('Generate secure token: openssl rand -base64 32');
+                    console.warn('Update via Railway dashboard environment variables\n');
+                }
             }
         }
     }
@@ -771,7 +783,8 @@ class SingleSessionHTTPServer {
                 documentation: 'https://github.com/czlonkowski/n8n-mcp'
             });
         });
-        const authLimiter = (0, express_rate_limit_1.default)({
+        const rateLimitEnabled = process.env.RATE_LIMIT_ENABLED !== 'false';
+        const authLimiter = rateLimitEnabled ? (0, express_rate_limit_1.default)({
             windowMs: parseInt(process.env.AUTH_RATE_LIMIT_WINDOW || '900000'),
             max: parseInt(process.env.AUTH_RATE_LIMIT_MAX || '20'),
             message: {
@@ -800,7 +813,7 @@ class SingleSessionHTTPServer {
                     id: null
                 });
             }
-        });
+        }) : ((req, res, next) => next());
         app.get('/sse', authLimiter, async (req, res) => {
             if (!this.authenticateRequest(req, res))
                 return;
