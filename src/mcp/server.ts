@@ -14,6 +14,7 @@ import { UIAppRegistry } from './ui';
 import { n8nManagementTools } from './tools-n8n-manager';
 import { tagsTools } from './tools-tags';
 import { variablesTools } from './tools-variables';
+import { advancedWorkflowTools } from './tools-advanced';
 import { makeToolsN8nFriendly } from './tools-n8n-friendly';
 import { docsFallbackTools } from './tools-docs-fallback';
 import { getWorkflowExampleString } from './workflow-examples';
@@ -1071,7 +1072,7 @@ export class N8NDocumentationMCPServer {
     }
 
     // Get all available tools
-    const allTools = [...n8nDocumentationToolsFinal, ...n8nManagementTools, ...tagsTools, ...variablesTools];
+    const allTools = [...n8nDocumentationToolsFinal, ...n8nManagementTools, ...tagsTools, ...variablesTools, ...advancedWorkflowTools];
     const tool = allTools.find(t => t.name === toolName);
     if (!tool || !tool.inputSchema) {
       return true; // If no schema, assume valid
@@ -1152,7 +1153,7 @@ export class N8NDocumentationMCPServer {
   ): Record<string, any> | undefined {
     if (!args || typeof args !== 'object') return args;
 
-    const allTools = [...n8nDocumentationToolsFinal, ...n8nManagementTools, ...tagsTools, ...variablesTools];
+    const allTools = [...n8nDocumentationToolsFinal, ...n8nManagementTools, ...tagsTools, ...variablesTools, ...advancedWorkflowTools];
     const tool = allTools.find(t => t.name === toolName);
     if (!tool?.inputSchema?.properties) return args;
 
@@ -1467,6 +1468,16 @@ export class N8NDocumentationMCPServer {
         return n8nHandlers.handleCreateVariable(args, this.instanceContext);
       case 'n8n_update_variable':
         return n8nHandlers.handleUpdateVariable(args, this.instanceContext);
+      case 'n8n_search_workflows':
+        return n8nHandlers.handleSearchWorkflows(args, this.instanceContext);
+      case 'n8n_duplicate_workflow':
+        return n8nHandlers.handleDuplicateWorkflow(args, this.instanceContext);
+      case 'n8n_export_workflow':
+        return n8nHandlers.handleExportWorkflow(args, this.instanceContext);
+      case 'n8n_get_workflow_connections':
+        return n8nHandlers.handleGetWorkflowConnections(args, this.instanceContext);
+      case 'n8n_batch_create_workflows':
+        return n8nHandlers.handleBatchCreateWorkflows(args, this.instanceContext);
 
       case 'n8n_health_check':
         // No required parameters - supports mode='status' (default) or mode='diagnostic'

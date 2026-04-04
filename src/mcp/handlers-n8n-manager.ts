@@ -3246,3 +3246,152 @@ export async function handleUpdateVariable(args: unknown, context?: InstanceCont
     };
   }
 }
+
+// ============================================================================
+// ADVANCED WORKFLOW TOOLS
+// ============================================================================
+
+export async function handleSearchWorkflows(args: unknown, context?: InstanceContext): Promise<McpToolResponse> {
+  try {
+    const client = ensureApiConfigured(context);
+    const { query, active } = args as { query: string; active?: boolean };
+    if (!query) {
+      return {
+        success: false,
+        message: 'Query is required. Usage: n8n_search_workflows({query: "search-term"})',
+      };
+    }
+    const workflows = await client.listWorkflows({ active });
+    const queryLower = query.toLowerCase();
+    const filtered = workflows.data.filter((wf: any) => {
+      const nameMatch = wf.name?.toLowerCase().includes(queryLower);
+      const tagMatch = wf.tags?.some((t: any) => t.name?.toLowerCase().includes(queryLower));
+      return nameMatch || tagMatch;
+    });
+    return {
+      success: true,
+      message: `Found ${filtered.length} workflow(s) matching "${query}".\n\n${JSON.stringify(filtered, null, 2)}`,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      message: `Failed to search workflows: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+}
+
+export async function handleDuplicateWorkflow(args: unknown, context?: InstanceContext): Promise<McpToolResponse> {
+  try {
+    const client = ensureApiConfigured(context);
+    const { id, newName } = args as { id: string; newName?: string };
+    if (!id) {
+      return {
+        success: false,
+        message: 'Workflow ID is required. Usage: n8n_duplicate_workflow({id: "workflow-id", newName: "optional"})',
+      };
+    }
+    const original = await client.getWorkflow(id);
+    const dupName = newName || `${original.name} (Copy)`;
+    const { id: _oldId, ...rest } = original as any;
+    const duplicated = await client.createWorkflow({ ...rest, name: dupName } as any);
+    return {
+      success: true,
+      message: `Successfully duplicated workflow "${original.name}" → "${duplicated.name}" (ID: ${duplicated.id}).\n\n${JSON.stringify(duplicated, null, 2)}`,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      message: `Failed to duplicate workflow: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+}
+
+export async function handleExportWorkflow(args: unknown, context?: InstanceContext): Promise<McpToolResponse> {
+  try {
+    const client = ensureApiConfigured(context);
+    const { id } = args as { id: string };
+    if (!id) {
+      return {
+        success: false,
+        message: 'Workflow ID is required. Usage: n8n_export_workflow({id: "workflow-id"})',
+      };
+    }
+    const workflow = await client.getWorkflow(id);
+    return {
+      success: true,
+      message: `Exported workflow "${workflow.name}" (ID: ${workflow.id}).\n\n${JSON.stringify(workflow, null, 2)}`,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      message: `Failed to export workflow: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+}
+
+export async function handleGetWorkflowConnections(args: unknown, context?: InstanceContext): Promise<McpToolResponse> {
+  try {
+    const client = ensureApiConfigured(context);
+    const { id } = args as { id: string };
+    if (!id) {
+      return {
+        success: false,
+        message: 'Workflow ID is required. Usage: n8n_get_workflow_connections({id: "workflow-id"})',
+      };
+    }
+    const workflow = await client.getWorkflow(id);
+    const nodes = (workflow as any).nodes || [];
+    const connections = (workflow as any).connections || {};
+    const edges: Array<{ from: string; to: string; type?: string }> = [];
+    for (const [sourceNode, outputPorts] of Object.entries(connections)) {
+      for (const [outputIdx, outputConnections] of Object.entries(outputPorts as any)) {
+        for (const conn of (outputConnections as any[])) {
+          if (conn?.node) {
+            edges.push({ from: sourceNode, to: conn.node, type: conn.type });
+          }
+        }
+      }
+    }
+    return {
+      success: true,
+      message: `Workflow "${workflow.name}" has ${nodes.length} node(s) and ${edges.length} connection(s).\n\nNodes: ${JSON.stringify(nodes.map((n: any) => ({ id: n.id, name: n.name, type: n.type })), null, 2)}\n\nConnections: ${JSON.stringify(edges, null, 2)}`,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      message: `Failed to get workflow connections: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+}
+
+export async function handleBatchCreateWorkflows(args: unknown, context?: InstanceContext): Promise<McpToolResponse> {
+  try {
+    const client = ensureApiConfigured(context);
+    const { workflows } = args as { workflows: Array<{ name: string; nodes?: any[]; connections?: any }> };
+    if (!workflows || !Array.isArray(workflows)) {
+      return {
+        success: false,
+        message: 'Workflows array is required. Usage: n8n_batch_create_workflows({workflows: [{name: "wf1"}, {name: "wf2"}]})',
+      };
+    }
+    const created: any[] = [];
+    const failed: Array<{ name: string; error: string }> = [];
+    for (const wf of workflows) {
+      try {
+        const result = await client.createWorkflow(wf as any);
+        created.push({ id: result.id, name: result.name });
+      } catch (err) {
+        failed.push({ name: wf.name, error: err instanceof Error ? err.message : String(err) });
+      }
+    }
+    return {
+      success: true,
+      message: `Batch complete: ${created.length} created, ${failed.length} failed.\n\nCreated: ${JSON.stringify(created, null, 2)}\n\nFailed: ${JSON.stringify(failed, null, 2)}`,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      message: `Failed to batch create workflows: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+}
