@@ -142,12 +142,54 @@ fix: add WWW-Authenticate header to 401 responses (issue #604)
 
 ---
 
-## 🔷 Próximos Passos
+## 🔷 FASE C — Docs Fallback + Tools IA — CONCLUÍDO
 
-1. **PR upstream:** Submeter correções para czlonkowski/n8n-mcp
-2. **Tools Core:** Implementar novas tools (docs fallback, IA)
-3. **n8n local:** Aguardar Docker completar pull da imagem
+### Tools Implementadas
+
+| Tool | Função | Status |
+|------|--------|--------|
+| `n8n_search_external_docs` | Fallback Kapa.ai → llms.txt → docs.n8n.io | ✅ Implementado |
+| `n8n_suggest_nodes` | Sugere nodes baseado em task description | ✅ Implementado |
+
+### Architecture
+
+```
+n8n_search_external_docs(query, source='auto')
+  ├── Layer 1: Kapa.ai MCP (semantic search)
+  ├── Layer 2: llms.txt (fetch docs.n8n.io/llms.txt, keyword match)
+  └── Layer 3: docs.n8n.io/search/?q=<query> (direct link)
+
+n8n_suggest_nodes(task, maxResults=5, includeTriggers=true)
+  ├── Keyword mapping: task words → node types
+  ├── Default: httpRequest + code + set (unknown tasks)
+  └── Trigger detection: when/on/trigger → webhook + scheduleTrigger
+```
+
+### Arquivos Criados/Modificados
+
+| Arquivo | Alteração |
+|---------|-----------|
+| `src/mcp/tools-docs-fallback.ts` | ✅ Novo — tool definitions |
+| `src/mcp/handlers-n8n-manager.ts` | ✅ +260 linhas — handleSearchExternalDocs + handleSuggestNodes |
+| `src/mcp/server.ts` | ✅ Import + register tools + switch cases |
+
+### Build & Testes
+
+| Check | Resultado |
+|-------|-----------|
+| `tsc -p tsconfig.build.json` | ✅ Sem erros |
+| `npm test:unit` | ✅ 4242 passed (mesmo baseline) |
+| Git push | ✅ Commit 5a1cdd3 |
 
 ---
 
-*Última atualização: 03 Abr 2026 20:30*
+## 🔷 Próximos Passos
+
+1. **PR upstream:** Submeter correções #604, #509 + novas tools para czlonkowski/n8n-mcp
+2. **Refinar docs fallback:** Integrar com MCP client real para Kapa.ai
+3. **Expandir suggest_nodes:** Usar NodeRepository local para matching mais preciso
+4. **Docker:** Otimizar imagem para produção
+
+---
+
+*Última atualização: 03 Abr 2026 21:15*
