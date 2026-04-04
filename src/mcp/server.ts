@@ -12,6 +12,7 @@ import path from 'path';
 import { n8nDocumentationToolsFinal } from './tools';
 import { UIAppRegistry } from './ui';
 import { n8nManagementTools } from './tools-n8n-manager';
+import { tagsTools } from './tools-tags';
 import { makeToolsN8nFriendly } from './tools-n8n-friendly';
 import { docsFallbackTools } from './tools-docs-fallback';
 import { getWorkflowExampleString } from './workflow-examples';
@@ -1069,7 +1070,7 @@ export class N8NDocumentationMCPServer {
     }
 
     // Get all available tools
-    const allTools = [...n8nDocumentationToolsFinal, ...n8nManagementTools];
+    const allTools = [...n8nDocumentationToolsFinal, ...n8nManagementTools, ...tagsTools];
     const tool = allTools.find(t => t.name === toolName);
     if (!tool || !tool.inputSchema) {
       return true; // If no schema, assume valid
@@ -1150,7 +1151,7 @@ export class N8NDocumentationMCPServer {
   ): Record<string, any> | undefined {
     if (!args || typeof args !== 'object') return args;
 
-    const allTools = [...n8nDocumentationToolsFinal, ...n8nManagementTools];
+    const allTools = [...n8nDocumentationToolsFinal, ...n8nManagementTools, ...tagsTools];
     const tool = allTools.find(t => t.name === toolName);
     if (!tool?.inputSchema?.properties) return args;
 
@@ -1455,6 +1456,11 @@ export class N8NDocumentationMCPServer {
             throw new Error(`Unknown action: ${execAction}. Valid actions: get, list, delete`);
         }
       }
+      case 'n8n_list_tags':
+        return n8nHandlers.handleListTags(args, this.instanceContext);
+      case 'n8n_create_tag':
+        return n8nHandlers.handleCreateTag(args, this.instanceContext);
+
       case 'n8n_health_check':
         // No required parameters - supports mode='status' (default) or mode='diagnostic'
         if (args.mode === 'diagnostic') {

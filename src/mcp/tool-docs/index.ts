@@ -26,6 +26,7 @@ import {
   n8nManageDatatableDoc,
   n8nGenerateWorkflowDoc
 } from './workflow_management';
+import { n8nListTagsDoc, n8nCreateTagDoc } from './tags_management';
 
 // Combine all tool documentations into a single object
 export const toolsDocumentation: Record<string, ToolDocumentation> = {
@@ -64,7 +65,11 @@ export const toolsDocumentation: Record<string, ToolDocumentation> = {
   n8n_workflow_versions: n8nWorkflowVersionsDoc,
   n8n_deploy_template: n8nDeployTemplateDoc,
   n8n_manage_datatable: n8nManageDatatableDoc,
-  n8n_generate_workflow: n8nGenerateWorkflowDoc
+  n8n_generate_workflow: n8nGenerateWorkflowDoc,
+
+  // Tags Management tools
+  n8n_list_tags: n8nListTagsDoc,
+  n8n_create_tag: n8nCreateTagDoc
 };
 
 // Re-export types

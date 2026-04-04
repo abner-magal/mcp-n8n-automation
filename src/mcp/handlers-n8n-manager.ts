@@ -3136,3 +3136,47 @@ export async function handleSuggestNodes(args: unknown): Promise<McpToolResponse
     message: `# Suggested Nodes for: "${task}"\n\n${formattedSuggestions}\n\n---\n\n**Next steps:**\n1. Use \`get_node({nodeType: "<type>", detail: "standard"})\` to see required properties\n2. Use \`validate_node({nodeType: "<type>", config: {...}})\` to validate configuration\n3. Use \`search_nodes({query: "<keyword>"})\` for more options`,
   };
 }
+
+// ============================================================================
+// TAGS MANAGEMENT
+// ============================================================================
+
+export async function handleListTags(args: unknown, context?: InstanceContext): Promise<McpToolResponse> {
+  try {
+    const client = ensureApiConfigured(context);
+    const { limit, cursor } = args as { limit?: number; cursor?: string };
+    const tags = await client.listTags({ limit, cursor });
+    return {
+      success: true,
+      message: `Successfully retrieved ${tags.data.length} tags.\n\n${JSON.stringify(tags, null, 2)}`,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      message: `Failed to list tags: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+}
+
+export async function handleCreateTag(args: unknown, context?: InstanceContext): Promise<McpToolResponse> {
+  try {
+    const client = ensureApiConfigured(context);
+    const { name } = args as { name: string };
+    if (!name) {
+      return {
+        success: false,
+        message: 'Tag name is required. Usage: n8n_create_tag({name: "tag-name"})',
+      };
+    }
+    const tag = await client.createTag({ name });
+    return {
+      success: true,
+      message: `Successfully created tag "${tag.name}" with ID: ${tag.id}.\n\n${JSON.stringify(tag, null, 2)}`,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      message: `Failed to create tag: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+}
