@@ -17,6 +17,8 @@ import { variablesTools } from './tools-variables';
 import { advancedWorkflowTools } from './tools-advanced';
 import { makeToolsN8nFriendly } from './tools-n8n-friendly';
 import { docsFallbackTools } from './tools-docs-fallback';
+import { credentialTools } from './tools-credentials';
+import { executionTools } from './tools-execution';
 import { getWorkflowExampleString } from './workflow-examples';
 import { logger } from '../utils/logger';
 import { NodeRepository } from '../database/node-repository';
@@ -603,8 +605,14 @@ export class N8NDocumentationMCPServer {
         const enabledMgmtTools = n8nManagementTools.filter(
           tool => !disabledTools.has(tool.name)
         );
-        tools.push(...enabledMgmtTools);
-        logger.debug(`Tool listing: ${tools.length} tools available (${enabledDocTools.length} documentation + ${enabledMgmtTools.length} management)`, {
+        const enabledCredentialTools = credentialTools.filter(
+          tool => !disabledTools.has(tool.name)
+        );
+        const enabledExecutionTools = executionTools.filter(
+          tool => !disabledTools.has(tool.name)
+        );
+        tools.push(...enabledMgmtTools, ...enabledCredentialTools, ...enabledExecutionTools);
+        logger.debug(`Tool listing: ${tools.length} tools available (${enabledDocTools.length} documentation + ${enabledMgmtTools.length} management + ${enabledCredentialTools.length} credentials + ${enabledExecutionTools.length} execution)`, {
           hasEnvConfig,
           hasInstanceConfig,
           isMultiTenantEnabled,
@@ -621,7 +629,8 @@ export class N8NDocumentationMCPServer {
 
       // Log filtered tools count if any tools are disabled
       if (disabledTools.size > 0) {
-        const totalAvailableTools = n8nDocumentationToolsFinal.length + (shouldIncludeManagementTools ? n8nManagementTools.length : 0);
+        const totalAvailableTools = n8nDocumentationToolsFinal.length +
+          (shouldIncludeManagementTools ? n8nManagementTools.length + credentialTools.length + executionTools.length : 0);
         logger.debug(`Filtered ${disabledTools.size} disabled tools, ${tools.length}/${totalAvailableTools} tools available`);
       }
       
@@ -1072,7 +1081,7 @@ export class N8NDocumentationMCPServer {
     }
 
     // Get all available tools
-    const allTools = [...n8nDocumentationToolsFinal, ...n8nManagementTools, ...tagsTools, ...variablesTools, ...advancedWorkflowTools];
+    const allTools = [...n8nDocumentationToolsFinal, ...n8nManagementTools, ...tagsTools, ...variablesTools, ...advancedWorkflowTools, ...credentialTools, ...executionTools];
     const tool = allTools.find(t => t.name === toolName);
     if (!tool || !tool.inputSchema) {
       return true; // If no schema, assume valid
@@ -1153,7 +1162,7 @@ export class N8NDocumentationMCPServer {
   ): Record<string, any> | undefined {
     if (!args || typeof args !== 'object') return args;
 
-    const allTools = [...n8nDocumentationToolsFinal, ...n8nManagementTools, ...tagsTools, ...variablesTools, ...advancedWorkflowTools];
+    const allTools = [...n8nDocumentationToolsFinal, ...n8nManagementTools, ...tagsTools, ...variablesTools, ...advancedWorkflowTools, ...credentialTools, ...executionTools];
     const tool = allTools.find(t => t.name === toolName);
     if (!tool?.inputSchema?.properties) return args;
 
@@ -1478,6 +1487,24 @@ export class N8NDocumentationMCPServer {
         return n8nHandlers.handleGetWorkflowConnections(args, this.instanceContext);
       case 'n8n_batch_create_workflows':
         return n8nHandlers.handleBatchCreateWorkflows(args, this.instanceContext);
+
+      // Execution Management (C.3)
+      case 'n8n_execute_workflow':
+        return n8nHandlers.handleExecuteWorkflow(args, this.instanceContext);
+      case 'n8n_retry_execution':
+        return n8nHandlers.handleRetryExecution(args, this.instanceContext);
+
+      // Credential Management (C.4)
+      case 'n8n_list_credentials':
+        return n8nHandlers.handleListCredentials(args, this.instanceContext);
+      case 'n8n_get_credential':
+        return n8nHandlers.handleGetCredential(args, this.instanceContext);
+      case 'n8n_create_credential':
+        return n8nHandlers.handleCreateCredential(args, this.instanceContext);
+      case 'n8n_update_credential':
+        return n8nHandlers.handleUpdateCredential(args, this.instanceContext);
+      case 'n8n_delete_credential':
+        return n8nHandlers.handleDeleteCredential(args, this.instanceContext);
 
       case 'n8n_health_check':
         // No required parameters - supports mode='status' (default) or mode='diagnostic'

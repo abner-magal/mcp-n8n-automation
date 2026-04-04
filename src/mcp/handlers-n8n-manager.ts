@@ -3487,3 +3487,304 @@ export async function handleBatchCreateWorkflows(args: unknown, context?: Instan
     };
   }
 }
+
+// ========================================================================
+// Execution Management Handlers (C.3)
+// ========================================================================
+
+const executeWorkflowSchema = z.object({
+  workflowId: z.string().min(1, 'workflowId is required'),
+  inputData: z.record(z.unknown()).optional(),
+  mode: z.enum(['run', 'error']).optional().default('run'),
+});
+
+export async function handleExecuteWorkflow(args: unknown, context?: InstanceContext): Promise<McpToolResponse> {
+  const parsed = executeWorkflowSchema.safeParse(args);
+  if (!parsed.success) {
+    return { success: false, error: `Invalid input: ${parsed.error.message}` };
+  }
+
+  const { workflowId, inputData, mode } = parsed.data;
+  const client = ensureApiConfigured(context);
+
+  try {
+    const result = await client.executeWorkflow(workflowId, {
+      data: inputData,
+      mode,
+    });
+
+    return {
+      success: true,
+      data: {
+        executionId: result.executionId,
+        status: result.status,
+        workflowId,
+      },
+      message: `Workflow execution started successfully. Execution ID: ${result.executionId}`,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: `Failed to execute workflow: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+}
+
+const retryExecutionSchema = z.object({
+  executionId: z.string().min(1, 'executionId is required'),
+});
+
+export async function handleRetryExecution(args: unknown, context?: InstanceContext): Promise<McpToolResponse> {
+  const parsed = retryExecutionSchema.safeParse(args);
+  if (!parsed.success) {
+    return { success: false, error: `Invalid input: ${parsed.error.message}` };
+  }
+
+  const { executionId } = parsed.data;
+  const client = ensureApiConfigured(context);
+
+  try {
+    const result = await client.retryExecution(executionId);
+
+    return {
+      success: true,
+      executionId: result.newExecutionId,
+      data: {
+        newExecutionId: result.newExecutionId,
+        status: result.status,
+        originalExecutionId: executionId,
+      },
+      message: `Execution retried successfully. New execution ID: ${result.newExecutionId}`,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: `Failed to retry execution: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+}
+
+// ========================================================================
+// Credential Management Handlers (C.4)
+// ========================================================================
+
+const listCredentialsSchema = z.object({
+  type: z.string().optional(),
+  limit: z.number().min(1).max(1000).optional().default(100),
+});
+
+export async function handleListCredentials(args: unknown, context?: InstanceContext): Promise<McpToolResponse> {
+  const parsed = listCredentialsSchema.safeParse(args);
+  if (!parsed.success) {
+    return { success: false, error: `Invalid input: ${parsed.error.message}` };
+  }
+
+  const { type, limit } = parsed.data;
+  const client = ensureApiConfigured(context);
+
+  try {
+    const response = await client.listCredentials({ limit, filter: type ? { type } : undefined });
+    const credentials = response.data || [];
+
+    // SECURITY: Return only metadata - NEVER include credential data (secrets)
+    const sanitizedCredentials = credentials.map((cred: any) => ({
+      id: cred.id,
+      name: cred.name,
+      type: cred.type,
+      createdAt: cred.createdAt,
+      updatedAt: cred.updatedAt,
+    }));
+
+    return {
+      success: true,
+      data: {
+        credentials: sanitizedCredentials,
+        total: sanitizedCredentials.length,
+      },
+      message: `Successfully retrieved ${sanitizedCredentials.length} credential(s). Note: Secret values are not returned for security.`,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: `Failed to list credentials: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+}
+
+const getCredentialSchema = z.object({
+  id: z.string().min(1, 'id is required'),
+});
+
+export async function handleGetCredential(args: unknown, context?: InstanceContext): Promise<McpToolResponse> {
+  const parsed = getCredentialSchema.safeParse(args);
+  if (!parsed.success) {
+    return { success: false, error: `Invalid input: ${parsed.error.message}` };
+  }
+
+  const { id } = parsed.data;
+  const client = ensureApiConfigured(context);
+
+  try {
+    // AUDIT: Log credential access with guaranteed persistence (error level)
+    logger.error(`[AUDIT] Credential accessed: id=${id}`, {
+      action: 'credential_read',
+      credentialId: id,
+      timestamp: new Date().toISOString(),
+    });
+
+    const credential = await client.getCredential(id);
+
+    // SECURITY: Remove sensitive data from response
+    // The n8n API may return data with encrypted secrets - we should not expose them
+    const sanitizedCredential = {
+      id: credential.id,
+      name: credential.name,
+      type: credential.type,
+      createdAt: credential.createdAt,
+      updatedAt: credential.updatedAt,
+    };
+
+    return {
+      success: true,
+      data: sanitizedCredential,
+      message: `Credential retrieved successfully. SECURITY: Secret values are not returned for security.`,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: `Failed to get credential: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+}
+
+const createCredentialSchema = z.object({
+  name: z.string().min(1, 'name is required'),
+  type: z.string().min(1, 'type is required'),
+  data: z.record(z.unknown()),
+});
+
+export async function handleCreateCredential(args: unknown, context?: InstanceContext): Promise<McpToolResponse> {
+  const parsed = createCredentialSchema.safeParse(args);
+  if (!parsed.success) {
+    return { success: false, error: `Invalid input: ${parsed.error.message}` };
+  }
+
+  const { name, type, data } = parsed.data;
+  const client = ensureApiConfigured(context);
+
+  try {
+    const credential = await client.createCredential({
+      name,
+      type,
+      data,
+    });
+
+    // SECURITY: Return only metadata - NEVER return the credential data (secrets)
+    return {
+      success: true,
+      data: {
+        id: credential.id,
+        name: credential.name,
+        type: credential.type,
+        createdAt: credential.createdAt,
+      },
+      message: `Credential "${name}" created successfully. Secret values are stored securely and not returned.`,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: `Failed to create credential: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+}
+
+const updateCredentialSchema = z.object({
+  id: z.string().min(1, 'id is required'),
+  name: z.string().min(1).optional(),
+  data: z.record(z.unknown()).optional(),
+});
+
+export async function handleUpdateCredential(args: unknown, context?: InstanceContext): Promise<McpToolResponse> {
+  const parsed = updateCredentialSchema.safeParse(args);
+  if (!parsed.success) {
+    return { success: false, error: `Invalid input: ${parsed.error.message}` };
+  }
+
+  const { id, name, data } = parsed.data;
+  const client = ensureApiConfigured(context);
+
+  try {
+    const updateData: Record<string, unknown> = {};
+    if (name) updateData.name = name;
+    if (data) updateData.data = data;
+
+    const credential = await client.updateCredential(id, updateData);
+
+    // SECURITY: Return only metadata - NEVER return the credential data (secrets)
+    return {
+      success: true,
+      data: {
+        id: credential.id,
+        name: credential.name,
+        type: credential.type,
+        updatedAt: credential.updatedAt,
+      },
+      message: `Credential "${credential.name}" updated successfully. Secret values are stored securely and not returned.`,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: `Failed to update credential: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+}
+
+const deleteCredentialSchema = z.object({
+  id: z.string().min(1, 'id is required'),
+});
+
+export async function handleDeleteCredential(args: unknown, context?: InstanceContext): Promise<McpToolResponse> {
+  const parsed = deleteCredentialSchema.safeParse(args);
+  if (!parsed.success) {
+    return { success: false, error: `Invalid input: ${parsed.error.message}` };
+  }
+
+  const { id } = parsed.data;
+  const client = ensureApiConfigured(context);
+
+  try {
+    // Check if credential is in use by any workflows
+    const workflows = await client.listWorkflows({ limit: 1000 });
+    const usedByWorkflows = (workflows.data || []).filter((wf: any) => {
+      return wf.nodes?.some((node: any) =>
+        node.credentials && Object.values(node.credentials as Record<string, unknown>).some(
+          (cred: any) => cred?.id === id
+        )
+      );
+    });
+
+    if (usedByWorkflows.length > 0) {
+      return {
+        success: false,
+        error: `Credential is in use by ${usedByWorkflows.length} workflow(s). Deactivate or update these workflows before deleting.`,
+        data: {
+          credentialId: id,
+          usedBy: usedByWorkflows.slice(0, 10).map((wf: any) => ({ id: wf.id, name: wf.name })),
+        },
+      };
+    }
+
+    await client.deleteCredential(id);
+
+    return {
+      success: true,
+      data: { id },
+      message: `Credential ${id} deleted successfully.`,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: `Failed to delete credential: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+}

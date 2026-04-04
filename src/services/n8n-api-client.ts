@@ -1,5 +1,5 @@
 import axios, { AxiosInstance, AxiosRequestConfig, InternalAxiosRequestConfig } from 'axios';
-import { logger } from '../utils/logger';
+import { logger, sanitizeRequestData } from '../utils/logger';
 import {
   Workflow,
   WorkflowListParams,
@@ -79,7 +79,7 @@ export class N8nApiClient {
       (config: InternalAxiosRequestConfig) => {
         logger.debug(`n8n API Request: ${config.method?.toUpperCase()} ${config.url}`, {
           params: config.params,
-          data: config.data,
+          data: sanitizeRequestData(config.url, config.data),
         });
         return config;
       },
@@ -346,6 +346,36 @@ export class N8nApiClient {
   async deleteExecution(id: string): Promise<void> {
     try {
       await this.client.delete(`/executions/${id}`);
+    } catch (error) {
+      throw handleN8nApiError(error);
+    }
+  }
+
+  async executeWorkflow(
+    workflowId: string,
+    params: { data?: Record<string, unknown>; mode?: string } = {}
+  ): Promise<{ executionId: string; status: string }> {
+    try {
+      const response = await this.client.post(`/workflows/${workflowId}/run`, {
+        data: params.data,
+        mode: params.mode || 'run',
+      });
+      return {
+        executionId: response.data.executionId || response.data.id,
+        status: response.data.status || 'running',
+      };
+    } catch (error) {
+      throw handleN8nApiError(error);
+    }
+  }
+
+  async retryExecution(executionId: string): Promise<{ newExecutionId: string; status: string }> {
+    try {
+      const response = await this.client.post(`/executions/${executionId}/retry`);
+      return {
+        newExecutionId: response.data.executionId || response.data.id,
+        status: response.data.status || 'running',
+      };
     } catch (error) {
       throw handleN8nApiError(error);
     }

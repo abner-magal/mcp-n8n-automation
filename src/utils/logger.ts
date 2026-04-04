@@ -131,3 +131,21 @@ export class Logger {
 export const logger = Logger.getInstance({
   level: Logger.parseLogLevel(process.env.LOG_LEVEL || 'info'),
 });
+
+/**
+ * Sanitizes request data to prevent logging of sensitive credential secrets.
+ * Used in API interceptors to safely log request payloads.
+ *
+ * @param url - The request URL
+ * @param data - The request payload
+ * @returns Sanitized payload safe for logging
+ */
+export function sanitizeRequestData(url: string | undefined, data: unknown): unknown {
+  if (!url || !data || typeof data !== 'object') return data;
+  // Redact credential secrets on POST/PATCH to /credentials
+  if (url.includes('/credentials') && (data as Record<string, unknown>).data) {
+    const d = data as Record<string, unknown>;
+    return { ...d, data: '[REDACTED - credential secrets]' };
+  }
+  return data;
+}
