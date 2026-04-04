@@ -67,6 +67,8 @@ exports.handleInsertRows = handleInsertRows;
 exports.handleUpdateRows = handleUpdateRows;
 exports.handleUpsertRows = handleUpsertRows;
 exports.handleDeleteRows = handleDeleteRows;
+exports.handleSearchExternalDocs = handleSearchExternalDocs;
+exports.handleSuggestNodes = handleSuggestNodes;
 const n8n_api_client_1 = require("../services/n8n-api-client");
 const n8n_api_1 = require("../config/n8n-api");
 const n8n_api_2 = require("../types/n8n-api");
@@ -2307,5 +2309,202 @@ async function handleDeleteRows(args, context) {
     catch (error) {
         return handleDataTableError(error);
     }
+}
+async function handleSearchExternalDocs(args) {
+    const schema = zod_1.z.object({
+        query: zod_1.z.string().min(1),
+        source: zod_1.z.enum(['auto', 'kapa', 'llms-txt']).default('auto'),
+    });
+    const parsed = schema.safeParse(args);
+    if (!parsed.success) {
+        return {
+            success: false,
+            error: `Invalid input: ${parsed.error.message}`,
+        };
+    }
+    const { query, source } = parsed.data;
+    const results = [];
+    if (source === 'auto' || source === 'kapa') {
+        try {
+            const kapaResult = await searchKapaAi(query);
+            if (kapaResult) {
+                results.push(`## Kapa.ai Results\n\n${kapaResult}`);
+            }
+        }
+        catch (error) {
+            logger_1.logger.debug('Kapa.ai search failed, falling back', { query, error: error instanceof Error ? error.message : 'unknown' });
+            if (source === 'kapa') {
+                return {
+                    success: false,
+                    error: `Kapa.ai search failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+                };
+            }
+        }
+    }
+    if ((source === 'auto' && results.length === 0) || source === 'llms-txt') {
+        try {
+            const llmsResult = await searchLlmsTxt(query);
+            if (llmsResult) {
+                results.push(`## llms.txt Results\n\n${llmsResult}`);
+            }
+        }
+        catch (error) {
+            logger_1.logger.debug('llms.txt search failed', { query, error: error instanceof Error ? error.message : 'unknown' });
+            if (source === 'llms-txt') {
+                return {
+                    success: false,
+                    error: `llms.txt search failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+                };
+            }
+        }
+    }
+    if (results.length === 0) {
+        const searchUrl = `https://docs.n8n.io/search/?q=${encodeURIComponent(query)}`;
+        return {
+            success: true,
+            message: `No results found in external sources. Search n8n documentation directly: ${searchUrl}`,
+        };
+    }
+    return {
+        success: true,
+        message: results.join('\n\n---\n\n') + `\n\n---\n\nFor more details, visit: https://docs.n8n.io/search/?q=${encodeURIComponent(query)}`,
+    };
+}
+async function searchKapaAi(query) {
+    const searchUrl = `https://n8n.mcp.kapa.ai/`;
+    return `To search Kapa.ai MCP for "${query}":\n1. Connect to Kapa.ai MCP server at ${searchUrl}\n2. Use the search_n8n_knowledge_sources tool with query: "${query}"\n\nKapa.ai provides semantic search across official n8n documentation.`;
+}
+async function searchLlmsTxt(query) {
+    try {
+        const response = await fetch('https://docs.n8n.io/llms.txt', {
+            method: 'GET',
+            signal: AbortSignal.timeout(10000),
+        });
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+        const content = await response.text();
+        const lowerQuery = query.toLowerCase();
+        const lines = content.split('\n');
+        const matches = [];
+        let inRelevantSection = false;
+        for (const line of lines) {
+            if (line.startsWith('#')) {
+                if (inRelevantSection && matches.length < 500) {
+                    inRelevantSection = false;
+                }
+                if (line.toLowerCase().includes(lowerQuery)) {
+                    inRelevantSection = true;
+                    matches.push(line);
+                }
+            }
+            else if (inRelevantSection && line.trim() && matches.length < 500) {
+                matches.push(line);
+            }
+        }
+        if (matches.length === 0) {
+            const preview = lines.slice(0, 200).filter(l => l.trim()).join('\n');
+            if (preview.toLowerCase().includes(lowerQuery)) {
+                return preview.slice(0, 3000);
+            }
+            return null;
+        }
+        return matches.join('\n').slice(0, 4000);
+    }
+    catch {
+        return null;
+    }
+}
+async function handleSuggestNodes(args) {
+    const schema = zod_1.z.object({
+        task: zod_1.z.string().min(1),
+        maxResults: zod_1.z.number().min(1).max(20).default(5),
+        includeTriggers: zod_1.z.boolean().default(true),
+    });
+    const parsed = schema.safeParse(args);
+    if (!parsed.success) {
+        return {
+            success: false,
+            error: `Invalid input: ${parsed.error.message}`,
+        };
+    }
+    const { task, maxResults, includeTriggers } = parsed.data;
+    const keywords = task.toLowerCase().split(/\s+/).filter(k => k.length > 2);
+    const keywordNodeMap = {
+        email: ['nodes-base.emailSend', 'nodes-base.emailRead', 'nodes-base.gmail', 'nodes-base.outlook'],
+        slack: ['nodes-base.slack'],
+        webhook: ['nodes-base.webhook'],
+        schedule: ['nodes-base.scheduleTrigger'],
+        cron: ['nodes-base.scheduleTrigger'],
+        sheets: ['nodes-base.googleSheets'],
+        drive: ['nodes-base.googleDrive'],
+        telegram: ['nodes-base.telegram'],
+        discord: ['nodes-base.discord'],
+        http: ['nodes-base.httpRequest'],
+        api: ['nodes-base.httpRequest'],
+        database: ['nodes-base.postgres', 'nodes-base.mysql', 'nodes-base.sqlite'],
+        postgres: ['nodes-base.postgres'],
+        mysql: ['nodes-base.mysql'],
+        file: ['nodes-base.readWriteFile'],
+        image: ['nodes-base.moveBinaryData'],
+        code: ['nodes-base.code'],
+        transform: ['nodes-base.code', 'nodes-base.set'],
+        merge: ['nodes-base.merge'],
+        if: ['nodes-base.if'],
+        switch: ['nodes-base.switch'],
+        loop: ['nodes-base.splitOut'],
+        wait: ['nodes-base.wait'],
+        rss: ['nodes-base.rssFeedRead'],
+        twitter: ['nodes-base.twitter'],
+        github: ['nodes-base.github'],
+        gitlab: ['nodes-base.gitlab'],
+        jira: ['nodes-base.jira'],
+        notion: ['nodes-base.notion'],
+        airtable: ['nodes-base.airtable'],
+        stripe: ['nodes-base.stripe'],
+        paypal: ['nodes-base.paypal'],
+    };
+    const matchedTypes = new Set();
+    for (const keyword of keywords) {
+        const mappedTypes = keywordNodeMap[keyword];
+        if (mappedTypes) {
+            mappedTypes.forEach(t => matchedTypes.add(t));
+        }
+    }
+    if (matchedTypes.size === 0) {
+        matchedTypes.add('nodes-base.httpRequest');
+        matchedTypes.add('nodes-base.code');
+        matchedTypes.add('nodes-base.set');
+    }
+    if (includeTriggers) {
+        if (task.toLowerCase().includes('when') || task.toLowerCase().includes('on ') || task.toLowerCase().includes('trigger')) {
+            matchedTypes.add('nodes-base.webhook');
+            matchedTypes.add('nodes-base.scheduleTrigger');
+        }
+    }
+    const suggestions = Array.from(matchedTypes).slice(0, maxResults).map(nodeType => {
+        const displayName = nodeType
+            .replace('nodes-base.', '')
+            .replace('nodes-langchain.', '')
+            .replace(/([A-Z])/g, ' $1')
+            .replace(/^./, s => s.toUpperCase())
+            .trim();
+        return {
+            nodeType,
+            displayName,
+            suggestion: `Use "${displayName}" node (${nodeType})`,
+        };
+    });
+    if (suggestions.length === 0) {
+        return {
+            success: true,
+            message: `No specific node suggestions for "${task}".\n\nTry using search_nodes({query: "..."}) to find relevant nodes.`,
+        };
+    }
+    const formattedSuggestions = suggestions.map((s, i) => `${i + 1}. **${s.displayName}**\n   - Type: \`${s.nodeType}\`\n   - ${s.suggestion}`).join('\n\n');
+    return {
+        success: true,
+        message: `# Suggested Nodes for: "${task}"\n\n${formattedSuggestions}\n\n---\n\n**Next steps:**\n1. Use \`get_node({nodeType: "<type>", detail: "standard"})\` to see required properties\n2. Use \`validate_node({nodeType: "<type>", config: {...}})\` to validate configuration\n3. Use \`search_nodes({query: "<keyword>"})\` for more options`,
+    };
 }
 //# sourceMappingURL=handlers-n8n-manager.js.map

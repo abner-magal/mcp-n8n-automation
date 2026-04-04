@@ -13,6 +13,7 @@ import { n8nDocumentationToolsFinal } from './tools';
 import { UIAppRegistry } from './ui';
 import { n8nManagementTools } from './tools-n8n-manager';
 import { makeToolsN8nFriendly } from './tools-n8n-friendly';
+import { docsFallbackTools } from './tools-docs-fallback';
 import { getWorkflowExampleString } from './workflow-examples';
 import { logger } from '../utils/logger';
 import { NodeRepository } from '../database/node-repository';
@@ -604,8 +605,13 @@ export class N8NDocumentationMCPServer {
         tool => !disabledTools.has(tool.name)
       );
 
+      // Filter docs fallback tools based on disabled list
+      const enabledDocsFallbackTools = docsFallbackTools.filter(
+        tool => !disabledTools.has(tool.name)
+      );
+
       // Combine documentation tools with management tools if API is configured
-      let tools = [...enabledDocTools];
+      let tools = [...enabledDocTools, ...enabledDocsFallbackTools];
 
       // Check if n8n API tools should be available
       // 1. Environment variables (backward compatibility)
@@ -1583,6 +1589,16 @@ export class N8NDocumentationMCPServer {
             '- AI-powered fresh generation for custom workflows\n' +
             '- Automatic validation and error correction'
         };
+      }
+
+      case 'n8n_search_external_docs': {
+        this.validateToolParams(name, args, ['query']);
+        return n8nHandlers.handleSearchExternalDocs(args);
+      }
+
+      case 'n8n_suggest_nodes': {
+        this.validateToolParams(name, args, ['task']);
+        return n8nHandlers.handleSuggestNodes(args);
       }
 
       default:

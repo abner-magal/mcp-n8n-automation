@@ -46,6 +46,7 @@ const tools_1 = require("./tools");
 const ui_1 = require("./ui");
 const tools_n8n_manager_1 = require("./tools-n8n-manager");
 const tools_n8n_friendly_1 = require("./tools-n8n-friendly");
+const tools_docs_fallback_1 = require("./tools-docs-fallback");
 const workflow_examples_1 = require("./workflow-examples");
 const logger_1 = require("../utils/logger");
 const node_repository_1 = require("../database/node-repository");
@@ -387,7 +388,8 @@ class N8NDocumentationMCPServer {
         this.server.setRequestHandler(types_js_1.ListToolsRequestSchema, async (request) => {
             const disabledTools = this.getDisabledTools();
             const enabledDocTools = tools_1.n8nDocumentationToolsFinal.filter(tool => !disabledTools.has(tool.name));
-            let tools = [...enabledDocTools];
+            const enabledDocsFallbackTools = tools_docs_fallback_1.docsFallbackTools.filter(tool => !disabledTools.has(tool.name));
+            let tools = [...enabledDocTools, ...enabledDocsFallbackTools];
             const hasEnvConfig = (0, n8n_api_1.isN8nApiConfigured)();
             const hasInstanceConfig = !!(this.instanceContext?.n8nApiUrl && this.instanceContext?.n8nApiKey);
             const isMultiTenantEnabled = process.env.ENABLE_MULTI_TENANT === 'true';
@@ -1177,6 +1179,14 @@ class N8NDocumentationMCPServer {
                         '- AI-powered fresh generation for custom workflows\n' +
                         '- Automatic validation and error correction'
                 };
+            }
+            case 'n8n_search_external_docs': {
+                this.validateToolParams(name, args, ['query']);
+                return n8nHandlers.handleSearchExternalDocs(args);
+            }
+            case 'n8n_suggest_nodes': {
+                this.validateToolParams(name, args, ['task']);
+                return n8nHandlers.handleSuggestNodes(args);
             }
             default:
                 throw new Error(`Unknown tool: ${name}`);

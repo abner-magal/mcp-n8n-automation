@@ -235,3 +235,70 @@ NEVER proactively create documentation files (*.md) or README files. Only create
 - Use the best sub-agent for the task as per their descriptions
 - Do not use hyperbolic or dramatic language in comments and documentation
 - Add to every commit and PR: Concieved by Romuald Członkowski - and then link to www.aiadvisors.pl/en. Don't add it in conversations
+
+## 📝 AGENTS.md Update Policy — Section-Only, User-Approved
+
+> **Rule:** The agent **MUST NEVER** rewrite or replace an entire `AGENTS.md` file autonomously. All updates must be **section-specific** and **user-approved** before execution.
+
+### Core Principles
+
+| Principle | Description |
+|-----------|-------------|
+| **Section-level updates only** | Never rewrite the entire file. Only modify the specific section(s) the user requests or that need updating based on project progress. |
+| **Always ask before updating** | Never write to `AGENTS.md` files without first consulting the user. Present what section(s) need updating and why. |
+| **Proactive recommendations** | The agent should recommend updates to outdated sections or suggest new sections when project progress makes them necessary. |
+| **Preserve existing content** | Only add, replace, or remove the specific section in question. Everything else stays intact. |
+
+### When the Agent Should Recommend Updates
+
+The agent **SHOULD recommend** updating `AGENTS.md` files when:
+
+| Trigger | Recommended Action |
+|---------|--------------------|
+| **New tools added** | Update MCP tools architecture section with new tool list |
+| **Dependencies changed** | Update "Common Development Commands" or add new scripts |
+| **Security issues found/fixed** | Add security notes or update existing guidelines |
+| **Architecture changes** | Update architecture diagrams or component descriptions |
+| **New patterns discovered** | Add or update "Key Design Patterns" section |
+| **New commands or scripts** | Update "Common Development Commands" section |
+| **Directory structure changes** | Update architecture tree at the top |
+| **New pitfalls discovered** | Add to "Common Pitfalls" section |
+| **Performance improvements** | Update "Performance Considerations" section |
+| **Outdated information detected** | Flag the specific section and ask user if it should be refreshed |
+
+### Update Proposal Format
+
+When the agent detects that a section needs updating, it **MUST** present a proposal like this:
+
+> **📝 AGENTS.md Update Recommended**
+>
+> **File:** `mcp-n8n-automation/AGENTS.md`
+>
+> **Section:** `[Section Name]`
+>
+> **Why:** Brief reason
+>
+> **Proposed change:** Summary of what will be added/modified/removed
+>
+> **Proceed? (yes/no)**
+
+### What the Agent Must NOT Do
+
+| Action | Status |
+|--------|--------|
+| Rewrite the entire `AGENTS.md` file | ❌ Forbidden |
+| Update sections without user approval | ❌ Forbidden |
+| Remove sections without user approval | ❌ Forbidden |
+| Auto-update any field without consent | ❌ Forbidden |
+| Assume a section is outdated and change it silently | ❌ Forbidden |
+| Create new sections without user approval | ❌ Forbidden |
+
+### What the Agent MAY Do
+
+| Action | Status |
+|--------|--------|
+| Read `AGENTS.md` files for context | ✅ Allowed |
+| Recommend specific section updates | ✅ Encouraged |
+| Flag outdated information for review | ✅ Encouraged |
+| Suggest new sections based on progress | ✅ Encouraged |
+| Apply approved section updates via targeted edits | ✅ Allowed (after consent) |

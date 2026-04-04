@@ -37,4 +37,6 @@ export declare function handleInsertRows(args: unknown, context?: InstanceContex
 export declare function handleUpdateRows(args: unknown, context?: InstanceContext): Promise<McpToolResponse>;
 export declare function handleUpsertRows(args: unknown, context?: InstanceContext): Promise<McpToolResponse>;
 export declare function handleDeleteRows(args: unknown, context?: InstanceContext): Promise<McpToolResponse>;
+export declare function handleSearchExternalDocs(args: unknown): Promise<McpToolResponse>;
+export declare function handleSuggestNodes(args: unknown): Promise<McpToolResponse>;
 //# sourceMappingURL=handlers-n8n-manager.d.ts.map
