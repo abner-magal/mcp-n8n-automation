@@ -3138,22 +3138,81 @@ export async function handleSuggestNodes(args: unknown): Promise<McpToolResponse
 }
 
 // ============================================================================
+// Zod schemas for tags, variables, and advanced workflow tools
+const listTagsSchema = z.object({
+  limit: z.number().min(1).max(1000).optional(),
+  cursor: z.string().optional(),
+});
+
+const createTagSchema = z.object({
+  name: z.string().min(1).max(255),
+});
+
+const listVariablesSchema = z.object({});
+
+const createVariableSchema = z.object({
+  key: z.string().min(1).max(255),
+  value: z.string().min(1),
+});
+
+const updateVariableSchema = z.object({
+  id: z.string().min(1),
+  value: z.string(),
+});
+
+const searchWorkflowsSchema = z.object({
+  query: z.string().min(1),
+  active: z.boolean().optional(),
+  limit: z.number().min(1).max(1000).optional(),
+});
+
+const duplicateWorkflowSchema = z.object({
+  id: z.string().min(1),
+  newName: z.string().min(1).max(255).optional(),
+});
+
+const exportWorkflowSchema = z.object({
+  id: z.string().min(1),
+});
+
+const getWorkflowConnectionsSchema = z.object({
+  id: z.string().min(1),
+});
+
+const batchCreateWorkflowsSchema = z.object({
+  workflows: z
+    .array(
+      z.object({
+        name: z.string().min(1),
+        nodes: z.array(z.any()).optional(),
+        connections: z.record(z.any()).optional(),
+      })
+    )
+    .min(1)
+    .max(50),
+});
+
 // TAGS MANAGEMENT
 // ============================================================================
 
 export async function handleListTags(args: unknown, context?: InstanceContext): Promise<McpToolResponse> {
   try {
     const client = ensureApiConfigured(context);
-    const { limit, cursor } = args as { limit?: number; cursor?: string };
+    const parsed = listTagsSchema.safeParse(args);
+    if (!parsed.success) {
+      return { success: false, error: `Invalid input: ${parsed.error.message}` };
+    }
+    const { limit, cursor } = parsed.data;
     const tags = await client.listTags({ limit, cursor });
     return {
       success: true,
-      message: `Successfully retrieved ${tags.data.length} tags.\n\n${JSON.stringify(tags, null, 2)}`,
+      data: tags,
+      message: `Successfully retrieved ${tags.data.length} tags.`,
     };
   } catch (error) {
     return {
       success: false,
-      message: `Failed to list tags: ${error instanceof Error ? error.message : String(error)}`,
+      error: error instanceof Error ? error.message : 'Unknown error occurred',
     };
   }
 }
@@ -3161,22 +3220,21 @@ export async function handleListTags(args: unknown, context?: InstanceContext): 
 export async function handleCreateTag(args: unknown, context?: InstanceContext): Promise<McpToolResponse> {
   try {
     const client = ensureApiConfigured(context);
-    const { name } = args as { name: string };
-    if (!name) {
-      return {
-        success: false,
-        message: 'Tag name is required. Usage: n8n_create_tag({name: "tag-name"})',
-      };
+    const parsed = createTagSchema.safeParse(args);
+    if (!parsed.success) {
+      return { success: false, error: `Invalid input: ${parsed.error.message}` };
     }
+    const { name } = parsed.data;
     const tag = await client.createTag({ name });
     return {
       success: true,
-      message: `Successfully created tag "${tag.name}" with ID: ${tag.id}.\n\n${JSON.stringify(tag, null, 2)}`,
+      data: tag,
+      message: `Successfully created tag "${tag.name}" with ID: ${tag.id}.`,
     };
   } catch (error) {
     return {
       success: false,
-      message: `Failed to create tag: ${error instanceof Error ? error.message : String(error)}`,
+      error: error instanceof Error ? error.message : 'Unknown error occurred',
     };
   }
 }
@@ -3188,15 +3246,29 @@ export async function handleCreateTag(args: unknown, context?: InstanceContext):
 export async function handleListVariables(args: unknown, context?: InstanceContext): Promise<McpToolResponse> {
   try {
     const client = ensureApiConfigured(context);
+    const parsed = listVariablesSchema.safeParse(args);
+    if (!parsed.success) {
+      return { success: false, error: `Invalid input: ${parsed.error.message}` };
+    }
     const variables = await client.getVariables();
+    if (!Array.isArray(variables) || variables.length === 0) {
+      return {
+        success: true,
+        data: { variables: [], count: 0 },
+        message: 'No variables found. Variables API may not be available in this n8n version.',
+      };
+    }
+    // Sanitize: do not return variable values (they may contain secrets)
+    const sanitized = variables.map((v: any) => ({ id: v.id, key: v.key }));
     return {
       success: true,
-      message: `Successfully retrieved ${variables.length} variables.\n\n${JSON.stringify(variables, null, 2)}`,
+      data: { variables: sanitized, count: sanitized.length },
+      message: `Successfully retrieved ${sanitized.length} variables.`,
     };
   } catch (error) {
     return {
       success: false,
-      message: `Failed to list variables: ${error instanceof Error ? error.message : String(error)}`,
+      error: error instanceof Error ? error.message : 'Unknown error occurred',
     };
   }
 }
@@ -3204,22 +3276,22 @@ export async function handleListVariables(args: unknown, context?: InstanceConte
 export async function handleCreateVariable(args: unknown, context?: InstanceContext): Promise<McpToolResponse> {
   try {
     const client = ensureApiConfigured(context);
-    const { key, value } = args as { key: string; value: string };
-    if (!key || value === undefined) {
-      return {
-        success: false,
-        message: 'Both key and value are required. Usage: n8n_create_variable({key: "VAR_NAME", value: "var_value"})',
-      };
+    const parsed = createVariableSchema.safeParse(args);
+    if (!parsed.success) {
+      return { success: false, error: `Invalid input: ${parsed.error.message}` };
     }
+    const { key, value } = parsed.data;
     const variable = await client.createVariable({ key, value });
+    // SECURITY: Do NOT return the value in the response
     return {
       success: true,
-      message: `Successfully created variable "${variable.key}" with ID: ${variable.id}.\n\n${JSON.stringify(variable, null, 2)}`,
+      data: { id: variable.id, key: variable.key },
+      message: `Successfully created variable "${variable.key}" with ID: ${variable.id}.`,
     };
   } catch (error) {
     return {
       success: false,
-      message: `Failed to create variable: ${error instanceof Error ? error.message : String(error)}`,
+      error: error instanceof Error ? error.message : 'Unknown error occurred',
     };
   }
 }
@@ -3227,22 +3299,22 @@ export async function handleCreateVariable(args: unknown, context?: InstanceCont
 export async function handleUpdateVariable(args: unknown, context?: InstanceContext): Promise<McpToolResponse> {
   try {
     const client = ensureApiConfigured(context);
-    const { id, value } = args as { id: string; value: string };
-    if (!id || value === undefined) {
-      return {
-        success: false,
-        message: 'Both id and value are required. Usage: n8n_update_variable({id: "var-id", value: "new_value"})',
-      };
+    const parsed = updateVariableSchema.safeParse(args);
+    if (!parsed.success) {
+      return { success: false, error: `Invalid input: ${parsed.error.message}` };
     }
+    const { id, value } = parsed.data;
     const variable = await client.updateVariable(id, { value });
+    // SECURITY: Do NOT return the value in the response
     return {
       success: true,
-      message: `Successfully updated variable "${variable.key}" (ID: ${variable.id}).\n\n${JSON.stringify(variable, null, 2)}`,
+      data: { id: variable.id, key: variable.key },
+      message: `Successfully updated variable "${variable.key}" (ID: ${variable.id}).`,
     };
   } catch (error) {
     return {
       success: false,
-      message: `Failed to update variable: ${error instanceof Error ? error.message : String(error)}`,
+      error: error instanceof Error ? error.message : 'Unknown error occurred',
     };
   }
 }
@@ -3254,14 +3326,13 @@ export async function handleUpdateVariable(args: unknown, context?: InstanceCont
 export async function handleSearchWorkflows(args: unknown, context?: InstanceContext): Promise<McpToolResponse> {
   try {
     const client = ensureApiConfigured(context);
-    const { query, active } = args as { query: string; active?: boolean };
-    if (!query) {
-      return {
-        success: false,
-        message: 'Query is required. Usage: n8n_search_workflows({query: "search-term"})',
-      };
+    const parsed = searchWorkflowsSchema.safeParse(args);
+    if (!parsed.success) {
+      return { success: false, error: `Invalid input: ${parsed.error.message}` };
     }
-    const workflows = await client.listWorkflows({ active });
+    const { query, active, limit } = parsed.data;
+    const fetchLimit = limit || 100;
+    const workflows = await client.listWorkflows({ active, limit: fetchLimit });
     const queryLower = query.toLowerCase();
     const filtered = workflows.data.filter((wf: any) => {
       const nameMatch = wf.name?.toLowerCase().includes(queryLower);
@@ -3270,12 +3341,13 @@ export async function handleSearchWorkflows(args: unknown, context?: InstanceCon
     });
     return {
       success: true,
-      message: `Found ${filtered.length} workflow(s) matching "${query}".\n\n${JSON.stringify(filtered, null, 2)}`,
+      data: { workflows: filtered, count: filtered.length, query, note: `Searched ${workflows.data.length} workflows (limit: ${fetchLimit}). Increase limit parameter for more results.` },
+      message: `Found ${filtered.length} workflow(s) matching "${query}".`,
     };
   } catch (error) {
     return {
       success: false,
-      message: `Failed to search workflows: ${error instanceof Error ? error.message : String(error)}`,
+      error: error instanceof Error ? error.message : 'Unknown error occurred',
     };
   }
 }
@@ -3283,25 +3355,31 @@ export async function handleSearchWorkflows(args: unknown, context?: InstanceCon
 export async function handleDuplicateWorkflow(args: unknown, context?: InstanceContext): Promise<McpToolResponse> {
   try {
     const client = ensureApiConfigured(context);
-    const { id, newName } = args as { id: string; newName?: string };
-    if (!id) {
-      return {
-        success: false,
-        message: 'Workflow ID is required. Usage: n8n_duplicate_workflow({id: "workflow-id", newName: "optional"})',
-      };
+    const parsed = duplicateWorkflowSchema.safeParse(args);
+    if (!parsed.success) {
+      return { success: false, error: `Invalid input: ${parsed.error.message}` };
     }
+    const { id, newName } = parsed.data;
     const original = await client.getWorkflow(id);
     const dupName = newName || `${original.name} (Copy)`;
-    const { id: _oldId, ...rest } = original as any;
-    const duplicated = await client.createWorkflow({ ...rest, name: dupName } as any);
+    // Explicitly select only the fields createWorkflow expects
+    const duplicated = await client.createWorkflow({
+      name: dupName,
+      nodes: original.nodes,
+      connections: original.connections,
+      settings: original.settings,
+      tags: original.tags,
+    } as any);
+    // SECURITY: Only return metadata, not the full workflow JSON with credentials
     return {
       success: true,
-      message: `Successfully duplicated workflow "${original.name}" → "${duplicated.name}" (ID: ${duplicated.id}).\n\n${JSON.stringify(duplicated, null, 2)}`,
+      data: { id: duplicated.id, name: duplicated.name, active: duplicated.active },
+      message: `Successfully duplicated workflow "${original.name}" → "${duplicated.name}" (ID: ${duplicated.id}).`,
     };
   } catch (error) {
     return {
       success: false,
-      message: `Failed to duplicate workflow: ${error instanceof Error ? error.message : String(error)}`,
+      error: error instanceof Error ? error.message : 'Unknown error occurred',
     };
   }
 }
@@ -3309,22 +3387,21 @@ export async function handleDuplicateWorkflow(args: unknown, context?: InstanceC
 export async function handleExportWorkflow(args: unknown, context?: InstanceContext): Promise<McpToolResponse> {
   try {
     const client = ensureApiConfigured(context);
-    const { id } = args as { id: string };
-    if (!id) {
-      return {
-        success: false,
-        message: 'Workflow ID is required. Usage: n8n_export_workflow({id: "workflow-id"})',
-      };
+    const parsed = exportWorkflowSchema.safeParse(args);
+    if (!parsed.success) {
+      return { success: false, error: `Invalid input: ${parsed.error.message}` };
     }
+    const { id } = parsed.data;
     const workflow = await client.getWorkflow(id);
     return {
       success: true,
-      message: `Exported workflow "${workflow.name}" (ID: ${workflow.id}).\n\n${JSON.stringify(workflow, null, 2)}`,
+      data: workflow,
+      message: `Exported workflow "${workflow.name}" (ID: ${workflow.id}). ⚠️ This export may contain embedded credentials in node configurations.`,
     };
   } catch (error) {
     return {
       success: false,
-      message: `Failed to export workflow: ${error instanceof Error ? error.message : String(error)}`,
+      error: error instanceof Error ? error.message : 'Unknown error occurred',
     };
   }
 }
@@ -3332,34 +3409,42 @@ export async function handleExportWorkflow(args: unknown, context?: InstanceCont
 export async function handleGetWorkflowConnections(args: unknown, context?: InstanceContext): Promise<McpToolResponse> {
   try {
     const client = ensureApiConfigured(context);
-    const { id } = args as { id: string };
-    if (!id) {
-      return {
-        success: false,
-        message: 'Workflow ID is required. Usage: n8n_get_workflow_connections({id: "workflow-id"})',
-      };
+    const parsed = getWorkflowConnectionsSchema.safeParse(args);
+    if (!parsed.success) {
+      return { success: false, error: `Invalid input: ${parsed.error.message}` };
     }
+    const { id } = parsed.data;
     const workflow = await client.getWorkflow(id);
-    const nodes = (workflow as any).nodes || [];
-    const connections = (workflow as any).connections || {};
+    const nodes = workflow.nodes;
+    const connections = workflow.connections;
     const edges: Array<{ from: string; to: string; type?: string }> = [];
     for (const [sourceNode, outputPorts] of Object.entries(connections)) {
-      for (const [outputIdx, outputConnections] of Object.entries(outputPorts as any)) {
-        for (const conn of (outputConnections as any[])) {
-          if (conn?.node) {
-            edges.push({ from: sourceNode, to: conn.node, type: conn.type });
+      for (const outputConnections of Object.values(outputPorts)) {
+        for (const connectionGroup of outputConnections) {
+          for (const conn of connectionGroup) {
+            if (conn?.node) {
+              edges.push({ from: sourceNode, to: conn.node, type: conn.type });
+            }
           }
         }
       }
     }
     return {
       success: true,
-      message: `Workflow "${workflow.name}" has ${nodes.length} node(s) and ${edges.length} connection(s).\n\nNodes: ${JSON.stringify(nodes.map((n: any) => ({ id: n.id, name: n.name, type: n.type })), null, 2)}\n\nConnections: ${JSON.stringify(edges, null, 2)}`,
+      data: {
+        workflowId: workflow.id,
+        workflowName: workflow.name,
+        nodes: nodes.map((n) => ({ id: n.id, name: n.name, type: n.type })),
+        edges,
+        nodeCount: nodes.length,
+        edgeCount: edges.length,
+      },
+      message: `Workflow "${workflow.name}" has ${nodes.length} node(s) and ${edges.length} connection(s).`,
     };
   } catch (error) {
     return {
       success: false,
-      message: `Failed to get workflow connections: ${error instanceof Error ? error.message : String(error)}`,
+      error: error instanceof Error ? error.message : 'Unknown error occurred',
     };
   }
 }
@@ -3367,31 +3452,38 @@ export async function handleGetWorkflowConnections(args: unknown, context?: Inst
 export async function handleBatchCreateWorkflows(args: unknown, context?: InstanceContext): Promise<McpToolResponse> {
   try {
     const client = ensureApiConfigured(context);
-    const { workflows } = args as { workflows: Array<{ name: string; nodes?: any[]; connections?: any }> };
-    if (!workflows || !Array.isArray(workflows)) {
-      return {
-        success: false,
-        message: 'Workflows array is required. Usage: n8n_batch_create_workflows({workflows: [{name: "wf1"}, {name: "wf2"}]})',
-      };
+    const parsed = batchCreateWorkflowsSchema.safeParse(args);
+    if (!parsed.success) {
+      return { success: false, error: `Invalid input: ${parsed.error.message}` };
     }
-    const created: any[] = [];
+    const { workflows } = parsed.data;
+    const created: Array<{ id: string; name: string }> = [];
     const failed: Array<{ name: string; error: string }> = [];
     for (const wf of workflows) {
       try {
-        const result = await client.createWorkflow(wf as any);
-        created.push({ id: result.id, name: result.name });
+        const result = await client.createWorkflow({
+          name: wf.name,
+          nodes: wf.nodes,
+          connections: wf.connections,
+        } as any);
+        if (result.id) {
+          created.push({ id: result.id, name: result.name });
+        } else {
+          failed.push({ name: wf.name, error: 'Workflow creation returned no ID' });
+        }
       } catch (err) {
         failed.push({ name: wf.name, error: err instanceof Error ? err.message : String(err) });
       }
     }
     return {
       success: true,
-      message: `Batch complete: ${created.length} created, ${failed.length} failed.\n\nCreated: ${JSON.stringify(created, null, 2)}\n\nFailed: ${JSON.stringify(failed, null, 2)}`,
+      data: { created, failed, totalRequested: workflows.length, totalCreated: created.length, totalFailed: failed.length },
+      message: `Batch complete: ${created.length} created, ${failed.length} failed.`,
     };
   } catch (error) {
     return {
       success: false,
-      message: `Failed to batch create workflows: ${error instanceof Error ? error.message : String(error)}`,
+      error: error instanceof Error ? error.message : 'Unknown error occurred',
     };
   }
 }

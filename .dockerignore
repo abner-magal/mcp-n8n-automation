@@ -1,75 +1,90 @@
-# .dockerignore
+# ─────────────────────────────────────────────────────────────────────────────
+# .dockerignore — mcp-n8n-automation
+# WBS-PLAN FASE G.2 — Docker Otimizado
+# Exclui tudo exceto o necessário para o build multi-stage
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── Dependências e artefatos de build (instalados/copiados dentro do Docker) ──
 node_modules
-npm-debug.log
-.git
-.gitignore
+dist
+.tscache
+tsconfig.tsbuildinfo
+build/
+out/
+
+# ── Arquivos de ambiente e segredos ──
 .env
 .env.local
-# Exclude all .env.* files except .env.example
 .env.*
 !.env.example
-# Keep nodes.db but exclude other database files
-data/*.db
-data/*.db-*
-!data/nodes.db
-dist
-.DS_Store
-*.log
-coverage
+
+# ── Diretórios de desenvolvimento e teste ──
+tests/
+test/
+coverage/
 .nyc_output
+test-data/
+test-results/
+test-summary.md
+test-reports/
+test-metadata.json
+
+# ── Referências e documentação externa ──
+references/
+docs/
+extracted-nodes/
+temp/
+tmp/
+
+# ── Git e versionamento ──
+.git
+.gitignore
+.husky
+.github
+
+# ── IDE e editores ──
 .vscode
 .idea
 *.swp
 *.swo
 *~
-docker-compose.override.yml
-.github
-docs
-tests
-jest.config.js
-.eslintrc.js
-*.md
-!README.md
-!LICENSE
-# Exclude n8n-docs if present
-../n8n-docs
-n8n-docs
-# Exclude extracted nodes
-extracted-nodes/
-# Exclude temp directory
-temp/
-tmp/
-# Exclude any backup or temporary files
+.eslintcache
+.stylelintcache
+
+# ── Sistema operacional ──
+.DS_Store
+*.log
+npm-debug.log
 *.bak
 *.tmp
 *.temp
-# Exclude build artifacts
-build/
-out/
-# Exclude local development files
-.eslintcache
-.stylelintcache
-# Exclude any large test data
-test-data/
-# Exclude Docker files during build
+
+# ── Docker files (não necessários dentro do build context) ──
 Dockerfile*
 docker-compose*.yml
 .dockerignore
-# Exclude development scripts
+docker/
+
+# ── Scripts de desenvolvimento e deploy ──
 scripts/test-*.sh
 scripts/deploy-*.sh
-# Exclude TypeScript cache
-.tscache
-tsconfig.tsbuildinfo
-# Exclude package manager caches
-.npm
-.pnpm-store
-.yarn
-# Exclude git hooks
-.husky
-# Exclude renovate config
+
+# ── N8n docs locais (extraídos, não necessários em produção) ──
+../n8n-docs
+n8n-docs/
+
+# ── Markdown e textos (exceto README e LICENSE) ──
+*.md
+!README.md
+!LICENSE
+
+# ── Configurações de CI/CD (não usadas no container) ──
+codecov.yml
 renovate.json
-# Exclude any local notes or TODO files
-TODO*
-NOTES*
-*.todo
+
+# ── Banco de dados (exceto nodes.db principal) ──
+data/*.db-*
+!data/nodes.db
+
+# ── YAML de configuração local ──
+_config.yml

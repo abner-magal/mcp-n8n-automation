@@ -2,10 +2,11 @@ import { ToolDefinition } from '../types';
 
 export const n8nListVariablesTool: ToolDefinition = {
   name: 'n8n_list_variables',
-  description: 'List environment variables from the n8n instance.',
+  description: 'List environment variables from the n8n instance. Note: variable values are not returned for security reasons.',
   inputSchema: {
     type: 'object',
     properties: {},
+    additionalProperties: false,
   },
 };
 
@@ -17,14 +18,18 @@ export const n8nCreateVariableTool: ToolDefinition = {
     properties: {
       key: {
         type: 'string',
-        description: 'The name/key of the variable.',
+        description: 'The name/key of the variable (1-255 characters).',
+        minLength: 1,
+        maxLength: 255,
       },
       value: {
         type: 'string',
         description: 'The value of the variable.',
+        minLength: 1,
       },
     },
     required: ['key', 'value'],
+    additionalProperties: false,
   },
 };
 
@@ -37,6 +42,7 @@ export const n8nUpdateVariableTool: ToolDefinition = {
       id: {
         type: 'string',
         description: 'The ID of the variable to update.',
+        minLength: 1,
       },
       value: {
         type: 'string',
@@ -44,6 +50,7 @@ export const n8nUpdateVariableTool: ToolDefinition = {
       },
     },
     required: ['id', 'value'],
+    additionalProperties: false,
   },
 };
 

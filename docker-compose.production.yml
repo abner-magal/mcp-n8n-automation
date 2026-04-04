@@ -1,0 +1,154 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# docker-compose.production.yml — mcp-n8n-automation
+# WBS-PLAN FASE G.2 — Docker Otimizado
+#
+# Uso:
+#   docker compose -f docker-compose.production.yml up -d     # Inicia ambos
+#   docker compose -f docker-compose.production.yml up -d mcp-n8n  # Só MCP
+#   docker compose -f docker-compose.production.yml logs -f   # Ver logs
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+  # ───────────────────────────────────────────────────────────────────────────
+  # MCP Server — n8n automation via MCP protocol
+  # ───────────────────────────────────────────────────────────────────────────
+  mcp-n8n:
+    build:
+      context: .
+      dockerfile: Dockerfile.production
+      target: runner
+    container_name: mcp-n8n-server
+    restart: unless-stopped
+
+    # Environment configuration
+    env_file:
+      - path: .env
+        required: false
+      - path: .env.local
+        required: false
+    environment:
+      # Mode: stdio (default for Claude Desktop) or http (for remote access)
+      - MCP_MODE=${MCP_MODE:-http}
+      - AUTH_TOKEN=${AUTH_TOKEN:-dev-token-change-in-production}
+      - NODE_ENV=${NODE_ENV:-production}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - PORT=${PORT:-3000}
+
+      # Database configuration
+      - NODE_DB_PATH=${NODE_DB_PATH:-/app/data/nodes.db}
+      - REBUILD_ON_START=${REBUILD_ON_START:-false}
+
+      # n8n API integration (enables workflow management tools)
+      - N8N_API_URL=${N8N_API_URL:-http://n8n:5678}
+      - N8N_API_KEY=${N8N_API_KEY:-}
+      - N8N_API_TIMEOUT=${N8N_API_TIMEOUT:-30000}
+      - N8N_API_MAX_RETRIES=${N8N_API_MAX_RETRIES:-3}
+
+    # Port mapping
+    ports:
+      - "${MCP_PORT:-3000}:3000"
+
+    # Volumes for persistent data
+    volumes:
+      - mcp-data:/app/data:rw
+
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "1.0"
+        reservations:
+          memory: 128M
+          cpus: "0.25"
+
+    # Health check (matches Dockerfile HEALTHCHECK)
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+
+    # Network
+    networks:
+      - mcp-network
+
+    # Depend on n8n if N8N_API_URL points to local n8n service
+    depends_on:
+      n8n:
+        condition: service_healthy
+        required: false
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # n8n — Workflow automation platform (optional, for local testing)
+  # ───────────────────────────────────────────────────────────────────────────
+  n8n:
+    image: docker.n8n.io/n8nio/n8n:latest
+    container_name: n8n-local
+    restart: unless-stopped
+
+    # Environment configuration
+    env_file:
+      - path: .env.n8n
+        required: false
+    environment:
+      - GENERIC_TIMEZONE=${GENERIC_TIMEZONE:-America/Sao_Paulo}
+      - TZ=${TZ:-America/Sao_Paulo}
+      - N8N_SECURE_COOKIE=${N8N_SECURE_COOKIE:-false}
+      - N8N_PROTOCOL=${N8N_PROTOCOL:-http}
+      - N8N_PORT=${N8N_PORT:-5678}
+      - N8N_HOST=${N8N_HOST:-localhost}
+      - N8N_USER_MANAGEMENT_ENABLED=${N8N_USER_MANAGEMENT_ENABLED:-false}
+      - N8N_DIAGNOSTICS_ENABLED=${N8N_DIAGNOSTICS_ENABLED:-false}
+      - N8N_PUBLIC_API_DISABLED=${N8N_PUBLIC_API_DISABLED:-false}
+      - N8N_PUBLIC_API_ENDPOINTS_ENABLED=${N8N_PUBLIC_API_ENDPOINTS_ENABLED:-true}
+
+    # Port mapping
+    ports:
+      - "${N8N_PORT:-5678}:5678"
+
+    # Volumes for persistence
+    volumes:
+      - n8n-data:/home/node/.n8n:rw
+
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: "2.0"
+        reservations:
+          memory: 256M
+          cpus: "0.5"
+
+    # Health check
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:5678/healthz || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+    # Network
+    networks:
+      - mcp-network
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Volumes — named volumes for data persistence
+# ─────────────────────────────────────────────────────────────────────────────
+volumes:
+  mcp-data:
+    driver: local
+    name: mcp-n8n-data
+  n8n-data:
+    driver: local
+    name: n8n-local-data
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Network — shared network for service communication
+# ─────────────────────────────────────────────────────────────────────────────
+networks:
+  mcp-network:
+    driver: bridge
+    name: mcp-network

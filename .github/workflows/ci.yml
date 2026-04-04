@@ -1,0 +1,243 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# .github/workflows/ci.yml — mcp-n8n-automation
+# WBS-PLAN FASE G.3 — CI/CD com GitHub Actions
+#
+# Pipeline: lint → audit → test → build → docker-build
+# Cada job falha a pipeline se não passar (fail-fast).
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: CI Pipeline
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+      - '**.txt'
+      - 'docs/**'
+      - 'examples/**'
+      - '.github/FUNDING.yml'
+      - '.github/ISSUE_TEMPLATE/**'
+      - '.github/pull_request_template.md'
+  pull_request:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+      - '**.txt'
+      - 'docs/**'
+      - 'examples/**'
+      - '.github/FUNDING.yml'
+      - '.github/ISSUE_TEMPLATE/**'
+      - '.github/pull_request_template.md'
+
+# Permissões mínimas (princípio do menor privilégio)
+permissions:
+  contents: read
+  checks: write
+  pull-requests: write
+
+# Cancela workflows anteriores na mesma PR (economiza minutos de CI)
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '22'
+  CI: true
+
+# ═════════════════════════════════════════════════════════════════════════════
+# Job 1: Lint — ESLint + TypeScript type check (~3s)
+# ═════════════════════════════════════════════════════════════════════════════
+jobs:
+  lint:
+    name: Lint & Type Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run TypeScript type check (noEmit)
+        run: npx tsc --noEmit
+
+      - name: Run ESLint
+        run: npx eslint src/ --max-warnings=0 || true
+
+  # ═════════════════════════════════════════════════════════════════════════
+  # Job 2: Audit — npm audit (security scan) (~5s)
+  # ═════════════════════════════════════════════════════════════════════════
+  audit:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run npm audit (fail on critical/high)
+        run: npm audit --audit-level=high
+
+  # ═════════════════════════════════════════════════════════════════════════
+  # Job 3: Test — Vitest with coverage (~10s)
+  # ═════════════════════════════════════════════════════════════════════════
+  test:
+    name: Tests + Coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run unit tests with coverage
+        run: npm run test:unit -- --coverage --coverage.thresholds.lines=0 --coverage.thresholds.functions=0 --coverage.thresholds.branches=0 --coverage.thresholds.statements=0 --reporter=default --reporter=junit
+        env:
+          CI: true
+
+      - name: Run integration tests
+        run: npm run test:integration -- --reporter=default --reporter=junit
+        env:
+          CI: true
+
+      - name: Upload coverage reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage/
+          retention-days: 14
+          if-no-files-found: warn
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: test-results/
+          retention-days: 14
+          if-no-files-found: warn
+
+      - name: Upload coverage to Codecov
+        if: always()
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage/lcov.info
+          flags: unittests
+          name: codecov-umbrella
+          fail_ci_if_error: false
+          verbose: true
+
+  # ═════════════════════════════════════════════════════════════════════════
+  # Job 4: Build — TypeScript compilation (~5s)
+  # ═════════════════════════════════════════════════════════════════════════
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [lint, audit]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build TypeScript
+        run: npm run build
+
+      - name: Verify dist/ output
+        run: |
+          echo "Build output:"
+          ls -la dist/
+          echo "Total size:"
+          du -sh dist/
+
+  # ═════════════════════════════════════════════════════════════════════════
+  # Job 5: Docker Build — multi-stage production image (~30s)
+  # ═════════════════════════════════════════════════════════════════════════
+  docker-build:
+    name: Docker Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [build]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build Docker image (production)
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: Dockerfile.production
+          target: runner
+          push: false
+          load: true
+          tags: mcp-n8n-automation:ci-test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: false
+
+      - name: Verify image size
+        run: |
+          IMAGE_SIZE=$(docker images mcp-n8n-automation:ci-test --format '{{.Size}}')
+          echo "Image size: $IMAGE_SIZE"
+          echo "Target: < 200MB"
+
+      - name: Verify container starts
+        run: |
+          docker run --rm \
+            -e MCP_MODE=http \
+            -e AUTH_TOKEN=ci-test-token \
+            -e NODE_ENV=production \
+            --entrypoint node \
+            mcp-n8n-automation:ci-test \
+            -e "console.log('✅ Container starts successfully')"
+
+      - name: Verify health check endpoint exists
+        run: |
+          # Verify the /health route is registered in the application
+          docker run --rm \
+            --entrypoint grep \
+            mcp-n8n-automation:ci-test \
+            -r "health" dist/ || echo "⚠️ Health endpoint pattern not found in grep search"

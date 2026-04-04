@@ -9,13 +9,21 @@ export const n8nSearchWorkflowsTool: ToolDefinition = {
       query: {
         type: 'string',
         description: 'The search query (matched against workflow names and tags).',
+        minLength: 1,
       },
       active: {
         type: 'boolean',
         description: 'Filter by active status.',
       },
+      limit: {
+        type: 'number',
+        description: 'Maximum number of workflows to fetch before filtering (1-1000, default 100). Higher limits may impact performance.',
+        minimum: 1,
+        maximum: 1000,
+      },
     },
     required: ['query'],
+    additionalProperties: false,
   },
 };
 
@@ -28,28 +36,34 @@ export const n8nDuplicateWorkflowTool: ToolDefinition = {
       id: {
         type: 'string',
         description: 'The ID of the workflow to duplicate.',
+        minLength: 1,
       },
       newName: {
         type: 'string',
         description: 'Optional new name for the duplicated workflow. Defaults to "{originalName} (Copy)".',
+        minLength: 1,
+        maxLength: 255,
       },
     },
     required: ['id'],
+    additionalProperties: false,
   },
 };
 
 export const n8nExportWorkflowTool: ToolDefinition = {
   name: 'n8n_export_workflow',
-  description: 'Export a workflow as JSON for backup or sharing.',
+  description: 'Export a workflow as JSON for backup or sharing. ⚠️ Warning: exports may contain embedded credentials in node configurations.',
   inputSchema: {
     type: 'object',
     properties: {
       id: {
         type: 'string',
         description: 'The ID of the workflow to export.',
+        minLength: 1,
       },
     },
     required: ['id'],
+    additionalProperties: false,
   },
 };
 
@@ -62,9 +76,11 @@ export const n8nGetWorkflowConnectionsTool: ToolDefinition = {
       id: {
         type: 'string',
         description: 'The ID of the workflow.',
+        minLength: 1,
       },
     },
     required: ['id'],
+    additionalProperties: false,
   },
 };
 
@@ -76,19 +92,23 @@ export const n8nBatchCreateWorkflowsTool: ToolDefinition = {
     properties: {
       workflows: {
         type: 'array',
-        description: 'Array of workflow specs to create. Each must have a name.',
+        description: 'Array of workflow specs to create (1-50 workflows). Each must have a name.',
+        minItems: 1,
+        maxItems: 50,
         items: {
           type: 'object',
           properties: {
-            name: { type: 'string' },
+            name: { type: 'string', minLength: 1 },
             nodes: { type: 'array' },
             connections: { type: 'object' },
           },
           required: ['name'],
+          additionalProperties: false,
         },
       },
     },
     required: ['workflows'],
+    additionalProperties: false,
   },
 };
 

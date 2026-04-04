@@ -8,9 +8,16 @@ export const n8nListTagsTool: ToolDefinition = {
     properties: {
       limit: {
         type: 'number',
-        description: 'The maximum number of tags to return.',
+        description: 'The maximum number of tags to return (1-1000).',
+        minimum: 1,
+        maximum: 1000,
+      },
+      cursor: {
+        type: 'string',
+        description: 'Pagination cursor for retrieving the next page of results.',
       },
     },
+    additionalProperties: false,
   },
 };
 
@@ -22,10 +29,13 @@ export const n8nCreateTagTool: ToolDefinition = {
     properties: {
       name: {
         type: 'string',
-        description: 'The name of the new tag.',
+        description: 'The name of the new tag (1-255 characters).',
+        minLength: 1,
+        maxLength: 255,
       },
     },
     required: ['name'],
+    additionalProperties: false,
   },
 };
 
