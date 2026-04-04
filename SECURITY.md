@@ -84,6 +84,9 @@ Before each release or deployment:
 1. **MCP Authentication**: When running in HTTP mode, always use strong `AUTH_TOKEN` values
 2. **n8n API Access**: The n8n API key provides full access to workflows - protect it carefully
 3. **Database Access**: The SQLite database contains node information but no credentials
+4. **Variable Values**: Environment variable values are **never returned in API responses** to prevent accidental credential exposure. Only `id` and `key` are returned by `n8n_list_variables`, `n8n_create_variable`, and `n8n_update_variable`.
+5. **Workflow Export**: `n8n_export_workflow` and `n8n_duplicate_workflow` may include node configurations with embedded credentials. Always review exported JSON before sharing.
+6. **Batch Operations**: `n8n_batch_create_workflows` is limited to 50 workflows per request to prevent abuse.
 
 ## Tools for Security
 

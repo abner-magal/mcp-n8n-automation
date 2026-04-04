@@ -1059,6 +1059,79 @@ search_templates({
 })
 ```
 
+## 🔧 Custom Extensions (abner-magal fork)
+
+This fork extends the upstream n8n-mcp with **10 additional MCP tools** for workflow management, tags, variables, and batch operations:
+
+### Tags Management
+
+| Tool | Description | Required Params |
+|------|-------------|----------------|
+| `n8n_list_tags` | List tags with pagination | — |
+| `n8n_create_tag` | Create a new tag | `name` |
+
+```typescript
+// List all tags
+n8n_list_tags({ limit: 50 })
+
+// Create a tag
+n8n_create_tag({ name: "production" })
+```
+
+### Variables Management
+
+| Tool | Description | Required Params |
+|------|-------------|----------------|
+| `n8n_list_variables` | List environment variables | — |
+| `n8n_create_variable` | Create a new environment variable | `key`, `value` |
+| `n8n_update_variable` | Update an existing variable | `id`, `value` |
+
+```typescript
+// List all variables
+n8n_list_variables({})
+
+// Create a variable
+n8n_create_variable({ key: "API_KEY", value: "sk-xxx..." })
+
+// Update a variable (requires ID from list)
+n8n_update_variable({ id: "1", value: "new-secret" })
+```
+
+> ⚠️ **Security**: Variable values are **never returned in responses**. Only `id` and `key` are shown to prevent accidental credential exposure.
+
+### Advanced Workflow Tools
+
+| Tool | Description | Required Params |
+|------|-------------|----------------|
+| `n8n_search_workflows` | Fuzzy search workflows by name/tags | `query` |
+| `n8n_duplicate_workflow` | Clone an existing workflow | `id` |
+| `n8n_export_workflow` | Export workflow as JSON | `id` |
+| `n8n_get_workflow_connections` | Extract node connection graph | `id` |
+| `n8n_batch_create_workflows` | Create multiple workflows at once | `workflows[]` |
+
+```typescript
+// Search workflows
+n8n_search_workflows({ query: "slack", active: true })
+
+// Duplicate a workflow
+n8n_duplicate_workflow({ id: "wf-123", newName: "Slack Alert (Copy)" })
+
+// Export workflow (⚠️ may contain embedded credentials)
+n8n_export_workflow({ id: "wf-123" })
+
+// Get workflow connection graph
+n8n_get_workflow_connections({ id: "wf-123" })
+// Returns: { nodes: [...], edges: [{ from, to }] }
+
+// Batch create workflows (max 50)
+n8n_batch_create_workflows({
+  workflows: [
+    { name: "Webhook Handler", nodes: [...], connections: {...} },
+    { name: "Daily Report", nodes: [...], connections: {...} }
+  ]
+})
+```
+
 ## 💻 Local Development Setup
 
 For contributors and advanced users:
@@ -1106,6 +1179,50 @@ npm run update:n8n        # Update n8n packages
 npm run dev            # Development with auto-reload
 npm run dev:http       # HTTP dev mode
 ```
+
+## 🐳 Production Deployment
+
+### Docker (Multi-Stage Build)
+
+```bash
+# Build production image
+docker build -f Dockerfile.production --target runner -t mcp-n8n:latest .
+
+# Run container (non-root user, health check included)
+docker run -d --name mcp-n8n \
+  -p 3000:3000 \
+  -e MCP_MODE=http \
+  -e N8N_API_URL=http://your-n8n:5678 \
+  -e N8N_API_KEY=your-api-key \
+  mcp-n8n:latest
+```
+
+### Docker Compose (MCP + n8n)
+
+```bash
+# Start both MCP server and n8n instance
+docker compose -f docker-compose.production.yml up -d
+
+# View logs
+docker compose -f docker-compose.production.yml logs -f
+
+# Check health
+docker compose -f docker-compose.production.yml ps
+```
+
+Image target: **< 150MB** (Alpine + production dependencies only).
+
+### CI/CD
+
+This project uses **GitHub Actions** for continuous integration. Every push and PR triggers:
+
+| Job | Duration | Fails If |
+|-----|----------|----------|
+| **lint** | ~3s | TypeScript errors or ESLint violations |
+| **audit** | ~5s | HIGH/CRITICAL vulnerabilities found |
+| **test** | ~10s | Any test fails (4200+ tests) |
+| **build** | ~5s | TypeScript compilation fails |
+| **docker-build** | ~30s | Docker image build fails |
 
 ## 📚 Documentation
 

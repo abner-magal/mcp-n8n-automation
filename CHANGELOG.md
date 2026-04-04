@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Tags Management Tools** — `n8n_list_tags` and `n8n_create_tag` for managing n8n tags with Zod validation
+- **Variables Management Tools** — `n8n_list_variables`, `n8n_create_variable`, and `n8n_update_variable` for environment variable management (values never returned in responses for security)
+- **Advanced Workflow Tools** — 5 new tools:
+  - `n8n_search_workflows` — fuzzy search by name/tags with configurable limit
+  - `n8n_duplicate_workflow` — clone workflows with safe field selection
+  - `n8n_export_workflow` — export workflow JSON with security warning
+  - `n8n_get_workflow_connections` — extract node connection graph
+  - `n8n_batch_create_workflows` — create up to 50 workflows in a single request
+
+### Security
+
+- **All new tools use Zod input validation** — no `as any` type assertions, proper runtime validation
+- **Variable values sanitized** — `n8n_list_variables`, `n8n_create_variable`, `n8n_update_variable` never expose secret values in responses
+- **Workflow export warning** — `n8n_export_workflow` includes warning about embedded credentials
+- **Error response format standardized** — all errors use `error` field (not `message`) for consistency
+
+### Infrastructure
+
+- **Dockerfile.production** — multi-stage build, non-root user (UID 10001), health check, < 150MB
+- **docker-compose.production.yml** — MCP server + n8n with shared network and resource limits
+- **.github/workflows/ci.yml** — 5-job pipeline (lint, audit, test, build, docker-build)
+- **.dockerignore** — optimized build context rules
+
+### Documentation
+
+- **CONTRIBUTING.md** — complete guide for contributors
+- **README.md** — custom extensions section with all new tools documented
+- **SECURITY.md** — updated with variable value sanitization and workflow export considerations
+
 ## [2.46.1] - 2026-04-03
 
 ### Fixed
