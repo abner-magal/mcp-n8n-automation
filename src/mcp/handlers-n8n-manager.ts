@@ -3180,3 +3180,69 @@ export async function handleCreateTag(args: unknown, context?: InstanceContext):
     };
   }
 }
+
+// ============================================================================
+// VARIABLES MANAGEMENT
+// ============================================================================
+
+export async function handleListVariables(args: unknown, context?: InstanceContext): Promise<McpToolResponse> {
+  try {
+    const client = ensureApiConfigured(context);
+    const variables = await client.getVariables();
+    return {
+      success: true,
+      message: `Successfully retrieved ${variables.length} variables.\n\n${JSON.stringify(variables, null, 2)}`,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      message: `Failed to list variables: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+}
+
+export async function handleCreateVariable(args: unknown, context?: InstanceContext): Promise<McpToolResponse> {
+  try {
+    const client = ensureApiConfigured(context);
+    const { key, value } = args as { key: string; value: string };
+    if (!key || value === undefined) {
+      return {
+        success: false,
+        message: 'Both key and value are required. Usage: n8n_create_variable({key: "VAR_NAME", value: "var_value"})',
+      };
+    }
+    const variable = await client.createVariable({ key, value });
+    return {
+      success: true,
+      message: `Successfully created variable "${variable.key}" with ID: ${variable.id}.\n\n${JSON.stringify(variable, null, 2)}`,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      message: `Failed to create variable: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+}
+
+export async function handleUpdateVariable(args: unknown, context?: InstanceContext): Promise<McpToolResponse> {
+  try {
+    const client = ensureApiConfigured(context);
+    const { id, value } = args as { id: string; value: string };
+    if (!id || value === undefined) {
+      return {
+        success: false,
+        message: 'Both id and value are required. Usage: n8n_update_variable({id: "var-id", value: "new_value"})',
+      };
+    }
+    const variable = await client.updateVariable(id, { value });
+    return {
+      success: true,
+      message: `Successfully updated variable "${variable.key}" (ID: ${variable.id}).\n\n${JSON.stringify(variable, null, 2)}`,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      message: `Failed to update variable: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+}

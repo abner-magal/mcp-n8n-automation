@@ -13,6 +13,7 @@ import { n8nDocumentationToolsFinal } from './tools';
 import { UIAppRegistry } from './ui';
 import { n8nManagementTools } from './tools-n8n-manager';
 import { tagsTools } from './tools-tags';
+import { variablesTools } from './tools-variables';
 import { makeToolsN8nFriendly } from './tools-n8n-friendly';
 import { docsFallbackTools } from './tools-docs-fallback';
 import { getWorkflowExampleString } from './workflow-examples';
@@ -1070,7 +1071,7 @@ export class N8NDocumentationMCPServer {
     }
 
     // Get all available tools
-    const allTools = [...n8nDocumentationToolsFinal, ...n8nManagementTools, ...tagsTools];
+    const allTools = [...n8nDocumentationToolsFinal, ...n8nManagementTools, ...tagsTools, ...variablesTools];
     const tool = allTools.find(t => t.name === toolName);
     if (!tool || !tool.inputSchema) {
       return true; // If no schema, assume valid
@@ -1151,7 +1152,7 @@ export class N8NDocumentationMCPServer {
   ): Record<string, any> | undefined {
     if (!args || typeof args !== 'object') return args;
 
-    const allTools = [...n8nDocumentationToolsFinal, ...n8nManagementTools, ...tagsTools];
+    const allTools = [...n8nDocumentationToolsFinal, ...n8nManagementTools, ...tagsTools, ...variablesTools];
     const tool = allTools.find(t => t.name === toolName);
     if (!tool?.inputSchema?.properties) return args;
 
@@ -1460,6 +1461,12 @@ export class N8NDocumentationMCPServer {
         return n8nHandlers.handleListTags(args, this.instanceContext);
       case 'n8n_create_tag':
         return n8nHandlers.handleCreateTag(args, this.instanceContext);
+      case 'n8n_list_variables':
+        return n8nHandlers.handleListVariables(args, this.instanceContext);
+      case 'n8n_create_variable':
+        return n8nHandlers.handleCreateVariable(args, this.instanceContext);
+      case 'n8n_update_variable':
+        return n8nHandlers.handleUpdateVariable(args, this.instanceContext);
 
       case 'n8n_health_check':
         // No required parameters - supports mode='status' (default) or mode='diagnostic'

@@ -27,6 +27,7 @@ import {
   n8nGenerateWorkflowDoc
 } from './workflow_management';
 import { n8nListTagsDoc, n8nCreateTagDoc } from './tags_management';
+import { n8nListVariablesDoc, n8nCreateVariableDoc, n8nUpdateVariableDoc } from './variables_management';
 
 // Combine all tool documentations into a single object
 export const toolsDocumentation: Record<string, ToolDocumentation> = {
@@ -69,7 +70,12 @@ export const toolsDocumentation: Record<string, ToolDocumentation> = {
 
   // Tags Management tools
   n8n_list_tags: n8nListTagsDoc,
-  n8n_create_tag: n8nCreateTagDoc
+  n8n_create_tag: n8nCreateTagDoc,
+
+  // Variables Management tools
+  n8n_list_variables: n8nListVariablesDoc,
+  n8n_create_variable: n8nCreateVariableDoc,
+  n8n_update_variable: n8nUpdateVariableDoc
 };
 
 // Re-export types
