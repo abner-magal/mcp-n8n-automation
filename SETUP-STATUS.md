@@ -183,6 +183,49 @@ n8n_suggest_nodes(task, maxResults=5, includeTriggers=true)
 
 ---
 
+## 🔷 Telemetria — COMPLETAMENTE REMOVIDA
+
+### O que foi removido
+
+| Item | Qtd | Descrição |
+|------|-----|-----------|
+| `src/telemetry/` | 20 arquivos | Todo o sistema de coleta de dados |
+| `tests/unit/telemetry/` | 5 arquivos | Testes unitários de telemetria |
+| `tests/integration/telemetry/` | 1 arquivo | Testes de integração |
+| `PRIVACY.md` | 1 arquivo | Política de privacidade da telemetria |
+| `test-telemetry-mutations.ts` | 2 arquivos | Scripts de teste |
+| `@supabase/supabase-js` | 1 dep | Dependência de armazenamento remoto |
+| `temp/` | 1 dir | Docs cache do n8n |
+
+### Arquivos Modificados
+
+| Arquivo | Alteração |
+|---------|-----------|
+| `src/mcp/server.ts` | -80 linhas (imports + 13 chamadas telemetry.track*) |
+| `src/mcp/index.ts` | -82 linhas (CLI commands enable/disable/status) |
+| `src/mcp/handlers-n8n-manager.ts` | -85 linhas (imports + trackWorkflowCreation/Event) |
+| `src/mcp/handlers-workflow-diff.ts` | -58 linhas (trackWorkflowMutation) |
+| `src/http-server-single-session.ts` | -2 linhas (earlyLogger refs) |
+| `package.json` | Removido `@supabase/supabase-js` |
+
+### Resultado
+
+```
+50 files changed, 105 insertions(+), 10,697 deletions(-)
+```
+
+**Zero coleta de dados do uso dos MCP tools.** Nenhum dado é enviado para Supabase, n8n.io, ou qualquer servidor externo.
+
+### Build & Testes
+
+| Check | Resultado |
+|-------|-----------|
+| `tsc -p tsconfig.build.json` | ✅ Sem erros |
+| `npm test:unit` | ✅ 4005 passed (baseline após remoção) |
+| Git push | ✅ Commit `418ecea` |
+
+---
+
 ## 🔷 Próximos Passos
 
 1. **PR upstream:** Submeter correções #604, #509 + novas tools para czlonkowski/n8n-mcp
