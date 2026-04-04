@@ -385,7 +385,7 @@ class SingleSessionHTTPServer {
                     else {
                         sessionIdToUse = sessionId || (0, uuid_1.v4)();
                     }
-                    const server = new server_1.N8NDocumentationMCPServer(instanceContext, undefined, {
+                    const server = new server_1.N8NDocumentationMCPServer(instanceContext, {
                         generateWorkflowHandler: this.generateWorkflowHandler,
                     });
                     transport = new streamableHttp_js_1.StreamableHTTPServerTransport({
@@ -550,7 +550,7 @@ class SingleSessionHTTPServer {
             });
             throw new Error(`Session limit reached (${MAX_SESSIONS})`);
         }
-        const server = new server_1.N8NDocumentationMCPServer(undefined, undefined, {
+        const server = new server_1.N8NDocumentationMCPServer(undefined, {
             generateWorkflowHandler: this.generateWorkflowHandler,
         });
         const transport = new sse_js_1.SSEServerTransport('/messages', res);

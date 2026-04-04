@@ -623,7 +623,7 @@ export class SingleSessionHTTPServer {
             sessionIdToUse = sessionId || uuidv4();
           }
 
-          const server = new N8NDocumentationMCPServer(instanceContext, undefined, {
+          const server = new N8NDocumentationMCPServer(instanceContext, {
             generateWorkflowHandler: this.generateWorkflowHandler,
           });
 
@@ -831,7 +831,7 @@ export class SingleSessionHTTPServer {
 
     // Note: SSE sessions do not support multi-tenant context.
     // The SaaS backend uses StreamableHTTP exclusively.
-    const server = new N8NDocumentationMCPServer(undefined, undefined, {
+    const server = new N8NDocumentationMCPServer(undefined, {
       generateWorkflowHandler: this.generateWorkflowHandler,
     });
 

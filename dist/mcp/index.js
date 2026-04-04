@@ -36,9 +36,6 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 const server_1 = require("./server");
 const logger_1 = require("../utils/logger");
-const config_manager_1 = require("../telemetry/config-manager");
-const early_error_logger_1 = require("../telemetry/early-error-logger");
-const startup_checkpoints_1 = require("../telemetry/startup-checkpoints");
 const fs_1 = require("fs");
 process.on('uncaughtException', (error) => {
     if (process.env.MCP_MODE !== 'stdio') {
@@ -72,153 +69,97 @@ function isContainerEnvironment() {
     }
 }
 async function main() {
-    const startTime = Date.now();
-    const earlyLogger = early_error_logger_1.EarlyErrorLogger.getInstance();
-    const checkpoints = [];
+    const mode = process.env.MCP_MODE || 'stdio';
     try {
-        earlyLogger.logCheckpoint(startup_checkpoints_1.STARTUP_CHECKPOINTS.PROCESS_STARTED);
-        checkpoints.push(startup_checkpoints_1.STARTUP_CHECKPOINTS.PROCESS_STARTED);
-        const args = process.argv.slice(2);
-        if (args.length > 0 && args[0] === 'telemetry') {
-            const telemetryConfig = config_manager_1.TelemetryConfigManager.getInstance();
-            const action = args[1];
-            switch (action) {
-                case 'enable':
-                    telemetryConfig.enable();
-                    process.exit(0);
-                    break;
-                case 'disable':
-                    telemetryConfig.disable();
-                    process.exit(0);
-                    break;
-                case 'status':
-                    console.log(telemetryConfig.getStatus());
-                    process.exit(0);
-                    break;
-                default:
-                    console.log(`
-Usage: n8n-mcp telemetry [command]
-
-Commands:
-  enable   Enable anonymous telemetry
-  disable  Disable anonymous telemetry
-  status   Show current telemetry status
-
-Learn more: https://github.com/czlonkowski/n8n-mcp/blob/main/PRIVACY.md
-`);
-                    process.exit(args[1] ? 1 : 0);
-            }
+        if (mode === 'http') {
+            console.error(`Starting n8n Documentation MCP Server in ${mode} mode...`);
+            console.error('Current directory:', process.cwd());
+            console.error('Node version:', process.version);
         }
-        const mode = process.env.MCP_MODE || 'stdio';
-        earlyLogger.logCheckpoint(startup_checkpoints_1.STARTUP_CHECKPOINTS.TELEMETRY_INITIALIZING);
-        checkpoints.push(startup_checkpoints_1.STARTUP_CHECKPOINTS.TELEMETRY_INITIALIZING);
-        earlyLogger.logCheckpoint(startup_checkpoints_1.STARTUP_CHECKPOINTS.TELEMETRY_READY);
-        checkpoints.push(startup_checkpoints_1.STARTUP_CHECKPOINTS.TELEMETRY_READY);
-        try {
-            if (mode === 'http') {
-                console.error(`Starting n8n Documentation MCP Server in ${mode} mode...`);
-                console.error('Current directory:', process.cwd());
-                console.error('Node version:', process.version);
-            }
-            earlyLogger.logCheckpoint(startup_checkpoints_1.STARTUP_CHECKPOINTS.MCP_HANDSHAKE_STARTING);
-            checkpoints.push(startup_checkpoints_1.STARTUP_CHECKPOINTS.MCP_HANDSHAKE_STARTING);
-            if (mode === 'http') {
-                if (process.env.USE_FIXED_HTTP === 'true') {
-                    logger_1.logger.warn('DEPRECATION WARNING: USE_FIXED_HTTP=true is deprecated as of v2.31.8. ' +
-                        'The fixed HTTP implementation does not support SSE streaming required by clients like OpenAI Codex. ' +
-                        'Please unset USE_FIXED_HTTP to use the modern SingleSessionHTTPServer which supports both JSON-RPC and SSE. ' +
-                        'This option will be removed in a future version. See: https://github.com/czlonkowski/n8n-mcp/issues/524');
-                    console.warn('\n⚠️  DEPRECATION WARNING ⚠️');
-                    console.warn('USE_FIXED_HTTP=true is deprecated as of v2.31.8.');
-                    console.warn('The fixed HTTP implementation does not support SSE streaming.');
-                    console.warn('Please unset USE_FIXED_HTTP to use SingleSessionHTTPServer.');
-                    console.warn('See: https://github.com/czlonkowski/n8n-mcp/issues/524\n');
-                    const { startFixedHTTPServer } = await Promise.resolve().then(() => __importStar(require('../http-server')));
-                    await startFixedHTTPServer();
-                }
-                else {
-                    const { SingleSessionHTTPServer } = await Promise.resolve().then(() => __importStar(require('../http-server-single-session')));
-                    const server = new SingleSessionHTTPServer();
-                    const shutdown = async () => {
-                        await server.shutdown();
-                        process.exit(0);
-                    };
-                    process.on('SIGTERM', shutdown);
-                    process.on('SIGINT', shutdown);
-                    await server.start();
-                }
+        if (mode === 'http') {
+            if (process.env.USE_FIXED_HTTP === 'true') {
+                logger_1.logger.warn('DEPRECATION WARNING: USE_FIXED_HTTP=true is deprecated as of v2.31.8. ' +
+                    'The fixed HTTP implementation does not support SSE streaming required by clients like OpenAI Codex. ' +
+                    'Please unset USE_FIXED_HTTP to use the modern SingleSessionHTTPServer which supports both JSON-RPC and SSE. ' +
+                    'This option will be removed in a future version. See: https://github.com/czlonkowski/n8n-mcp/issues/524');
+                console.warn('\n⚠️  DEPRECATION WARNING ⚠️');
+                console.warn('USE_FIXED_HTTP=true is deprecated as of v2.31.8.');
+                console.warn('The fixed HTTP implementation does not support SSE streaming.');
+                console.warn('Please unset USE_FIXED_HTTP to use SingleSessionHTTPServer.');
+                console.warn('See: https://github.com/czlonkowski/n8n-mcp/issues/524\n');
+                const { startFixedHTTPServer } = await Promise.resolve().then(() => __importStar(require('../http-server')));
+                await startFixedHTTPServer();
             }
             else {
-                const server = new server_1.N8NDocumentationMCPServer(undefined, earlyLogger);
-                let isShuttingDown = false;
-                const shutdown = async (signal = 'UNKNOWN') => {
-                    if (isShuttingDown)
-                        return;
-                    isShuttingDown = true;
-                    try {
-                        logger_1.logger.info(`Shutdown initiated by: ${signal}`);
-                        await server.shutdown();
-                        if (process.stdin && !process.stdin.destroyed) {
-                            process.stdin.pause();
-                            process.stdin.destroy();
-                        }
-                        setTimeout(() => {
-                            logger_1.logger.warn('Shutdown timeout exceeded, forcing exit');
-                            process.exit(0);
-                        }, 1000).unref();
-                    }
-                    catch (error) {
-                        logger_1.logger.error('Error during shutdown:', error);
-                        process.exit(1);
-                    }
+                const { SingleSessionHTTPServer } = await Promise.resolve().then(() => __importStar(require('../http-server-single-session')));
+                const server = new SingleSessionHTTPServer();
+                const shutdown = async () => {
+                    await server.shutdown();
+                    process.exit(0);
                 };
-                process.on('SIGTERM', () => shutdown('SIGTERM'));
-                process.on('SIGINT', () => shutdown('SIGINT'));
-                process.on('SIGHUP', () => shutdown('SIGHUP'));
-                const isContainer = isContainerEnvironment();
-                if (!isContainer && process.stdin.readable && !process.stdin.destroyed) {
-                    try {
-                        process.stdin.on('end', () => shutdown('STDIN_END'));
-                        process.stdin.on('close', () => shutdown('STDIN_CLOSE'));
-                    }
-                    catch (error) {
-                        logger_1.logger.error('Failed to register stdin handlers, using signal handlers only:', error);
-                    }
-                }
-                await server.run();
+                process.on('SIGTERM', shutdown);
+                process.on('SIGINT', shutdown);
+                await server.start();
             }
-            earlyLogger.logCheckpoint(startup_checkpoints_1.STARTUP_CHECKPOINTS.MCP_HANDSHAKE_COMPLETE);
-            checkpoints.push(startup_checkpoints_1.STARTUP_CHECKPOINTS.MCP_HANDSHAKE_COMPLETE);
-            earlyLogger.logCheckpoint(startup_checkpoints_1.STARTUP_CHECKPOINTS.SERVER_READY);
-            checkpoints.push(startup_checkpoints_1.STARTUP_CHECKPOINTS.SERVER_READY);
-            const startupDuration = Date.now() - startTime;
-            earlyLogger.logStartupSuccess(checkpoints, startupDuration);
-            logger_1.logger.info(`Server startup completed in ${startupDuration}ms (${checkpoints.length} checkpoints passed)`);
         }
-        catch (error) {
-            const failedCheckpoint = (0, startup_checkpoints_1.findFailedCheckpoint)(checkpoints);
-            earlyLogger.logStartupError(failedCheckpoint, error);
-            if (mode !== 'stdio') {
-                console.error('Failed to start MCP server:', error);
-                logger_1.logger.error('Failed to start MCP server', error);
-                if (error instanceof Error && error.message.includes('nodes.db not found')) {
-                    console.error('\nTo fix this issue:');
-                    console.error('1. cd to the n8n-mcp directory');
-                    console.error('2. Run: npm run build');
-                    console.error('3. Run: npm run rebuild');
+        else {
+            const server = new server_1.N8NDocumentationMCPServer();
+            let isShuttingDown = false;
+            const shutdown = async (signal = 'UNKNOWN') => {
+                if (isShuttingDown)
+                    return;
+                isShuttingDown = true;
+                try {
+                    logger_1.logger.info(`Shutdown initiated by: ${signal}`);
+                    await server.shutdown();
+                    if (process.stdin && !process.stdin.destroyed) {
+                        process.stdin.pause();
+                        process.stdin.destroy();
+                    }
+                    setTimeout(() => {
+                        logger_1.logger.warn('Shutdown timeout exceeded, forcing exit');
+                        process.exit(0);
+                    }, 1000).unref();
                 }
-                else if (error instanceof Error && error.message.includes('NODE_MODULE_VERSION')) {
-                    console.error('\nTo fix this Node.js version mismatch:');
-                    console.error('1. cd to the n8n-mcp directory');
-                    console.error('2. Run: npm rebuild better-sqlite3');
-                    console.error('3. If that doesn\'t work, try: rm -rf node_modules && npm install');
+                catch (error) {
+                    logger_1.logger.error('Error during shutdown:', error);
+                    process.exit(1);
+                }
+            };
+            process.on('SIGTERM', () => shutdown('SIGTERM'));
+            process.on('SIGINT', () => shutdown('SIGINT'));
+            process.on('SIGHUP', () => shutdown('SIGHUP'));
+            const isContainer = isContainerEnvironment();
+            if (!isContainer && process.stdin.readable && !process.stdin.destroyed) {
+                try {
+                    process.stdin.on('end', () => shutdown('STDIN_END'));
+                    process.stdin.on('close', () => shutdown('STDIN_CLOSE'));
+                }
+                catch (error) {
+                    logger_1.logger.error('Failed to register stdin handlers, using signal handlers only:', error);
                 }
             }
-            process.exit(1);
+            await server.run();
         }
+        logger_1.logger.info('Server startup completed successfully');
     }
-    catch (outerError) {
-        logger_1.logger.error('Critical startup error:', outerError);
+    catch (error) {
+        if (mode !== 'stdio') {
+            console.error('Failed to start MCP server:', error);
+            logger_1.logger.error('Failed to start MCP server', error);
+            if (error instanceof Error && error.message.includes('nodes.db not found')) {
+                console.error('\nTo fix this issue:');
+                console.error('1. cd to the n8n-mcp directory');
+                console.error('2. Run: npm run build');
+                console.error('3. Run: npm run rebuild');
+            }
+            else if (error instanceof Error && error.message.includes('NODE_MODULE_VERSION')) {
+                console.error('\nTo fix this Node.js version mismatch:');
+                console.error('1. cd to the n8n-mcp directory');
+                console.error('2. Run: npm rebuild better-sqlite3');
+                console.error('3. If that doesn\'t work, try: rm -rf node_modules && npm install');
+            }
+        }
         process.exit(1);
     }
 }

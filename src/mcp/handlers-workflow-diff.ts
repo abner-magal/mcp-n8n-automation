@@ -134,10 +134,10 @@ export async function handleUpdatePartialWorkflow(
     let workflow;
     try {
       workflow = await client.getWorkflow(input.id);
-      // Store original workflow for telemetry
+      // Store original workflow for diff comparison
       workflowBefore = JSON.parse(JSON.stringify(workflow));
 
-      // Validate workflow BEFORE mutation (for telemetry)
+      // Validate workflow BEFORE mutation
       try {
         const validator = getValidator(repository);
         validationBefore = await validator.validateWorkflow(workflowBefore, {
@@ -398,7 +398,7 @@ export async function handleUpdatePartialWorkflow(
       let finalWorkflow = updatedWorkflow;
       let activationMessage = '';
 
-      // Validate workflow AFTER mutation (for telemetry)
+      // Validate workflow AFTER mutation
       try {
         const validator = getValidator(repository);
         validationAfter = await validator.validateWorkflow(finalWorkflow, {
@@ -450,24 +450,6 @@ export async function handleUpdatePartialWorkflow(
         }
       }
 
-      // Track successful mutation
-      if (workflowBefore && !input.validateOnly) {
-        trackWorkflowMutation({
-          sessionId,
-          toolName: 'n8n_update_partial_workflow',
-          userIntent: input.intent || 'Partial workflow update',
-          operations: input.operations,
-          workflowBefore,
-          workflowAfter: finalWorkflow,
-          validationBefore,
-          validationAfter,
-          mutationSuccess: true,
-          durationMs: Date.now() - startTime,
-        }).catch(err => {
-          logger.debug('Failed to track mutation telemetry:', err);
-        });
-      }
-
       return {
         success: true,
         saved: true,
@@ -487,25 +469,6 @@ export async function handleUpdatePartialWorkflow(
         }
       };
     } catch (error) {
-      // Track failed mutation
-      if (workflowBefore && !input.validateOnly) {
-        trackWorkflowMutation({
-          sessionId,
-          toolName: 'n8n_update_partial_workflow',
-          userIntent: input.intent || 'Partial workflow update',
-          operations: input.operations,
-          workflowBefore,
-          workflowAfter: workflowBefore, // No change since it failed
-          validationBefore,
-          validationAfter: validationBefore, // Same as before since mutation failed
-          mutationSuccess: false,
-          mutationError: error instanceof Error ? error.message : 'Unknown error',
-          durationMs: Date.now() - startTime,
-        }).catch(err => {
-          logger.warn('Failed to track mutation telemetry for failed operation:', err);
-        });
-      }
-
       if (error instanceof N8nApiError) {
         return {
           success: false,
@@ -622,26 +585,5 @@ function inferIntentFromOperations(operations: any[]): string {
   return summary.length > 0
     ? `Workflow update: ${summary.join(', ')}`
     : `Workflow update: ${opCount} operations`;
-}
-
-/**
- * Track workflow mutation for telemetry
- */
-async function trackWorkflowMutation(data: any): Promise<void> {
-  try {
-    // Enhance intent if it's missing or generic
-    if (
-      !data.userIntent ||
-      data.userIntent === 'Partial workflow update' ||
-      data.userIntent.length < 10
-    ) {
-      data.userIntent = inferIntentFromOperations(data.operations);
-    }
-
-    const { telemetry } = await import('../telemetry/telemetry-manager.js');
-    await telemetry.trackWorkflowMutation(data);
-  } catch (error) {
-    logger.debug('Telemetry tracking failed:', error);
-  }
 }
 

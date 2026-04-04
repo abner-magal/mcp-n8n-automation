@@ -34,7 +34,6 @@ import { WorkflowAutoFixer, AutoFixConfig } from '../services/workflow-auto-fixe
 import { ExpressionFormatValidator, ExpressionFormatIssue } from '../services/expression-format-validator';
 import { WorkflowVersioningService } from '../services/workflow-versioning-service';
 import { handleUpdatePartialWorkflow } from './handlers-workflow-diff';
-import { telemetry } from '../telemetry';
 import { TemplateService } from '../templates/template-service';
 import {
   createCacheKey,
@@ -493,7 +492,6 @@ export async function handleCreateWorkflow(args: unknown, context?: InstanceCont
     });
 
     if (shortFormErrors.length > 0) {
-      telemetry.trackWorkflowCreation(input, false);
       return {
         success: false,
         error: 'Node type format error: n8n API requires FULL form node types',
@@ -507,9 +505,6 @@ export async function handleCreateWorkflow(args: unknown, context?: InstanceCont
     // Validate workflow structure (n8n API expects FULL form: n8n-nodes-base.*)
     const errors = validateWorkflowStructure(input);
     if (errors.length > 0) {
-      // Track validation failure
-      telemetry.trackWorkflowCreation(input, false);
-
       return {
         success: false,
         error: 'Workflow validation failed',
@@ -530,9 +525,6 @@ export async function handleCreateWorkflow(args: unknown, context?: InstanceCont
         }
       };
     }
-
-    // Track successful workflow creation
-    telemetry.trackWorkflowCreation(workflow, true);
 
     return {
       success: true,
@@ -840,22 +832,6 @@ export async function handleUpdateWorkflow(
     // Update workflow
     const workflow = await client.updateWorkflow(id, updateData);
 
-    // Track successful mutation
-    if (workflowBefore) {
-      trackWorkflowMutationForFullUpdate({
-        sessionId,
-        toolName: 'n8n_update_full_workflow',
-        userIntent,
-        operations: [], // Full update doesn't use diff operations
-        workflowBefore,
-        workflowAfter: workflow,
-        mutationSuccess: true,
-        durationMs: Date.now() - startTime,
-      }).catch(err => {
-        logger.warn('Failed to track mutation telemetry:', err);
-      });
-    }
-
     return {
       success: true,
       data: {
@@ -867,23 +843,6 @@ export async function handleUpdateWorkflow(
       message: `Workflow "${workflow.name}" updated successfully. Use n8n_get_workflow with mode 'structure' to verify current state.`
     };
   } catch (error) {
-    // Track failed mutation
-    if (workflowBefore) {
-      trackWorkflowMutationForFullUpdate({
-        sessionId,
-        toolName: 'n8n_update_full_workflow',
-        userIntent,
-        operations: [],
-        workflowBefore,
-        workflowAfter: workflowBefore, // No change since it failed
-        mutationSuccess: false,
-        mutationError: error instanceof Error ? error.message : 'Unknown error',
-        durationMs: Date.now() - startTime,
-      }).catch(err => {
-        logger.warn('Failed to track mutation telemetry for failed operation:', err);
-      });
-    }
-
     if (error instanceof z.ZodError) {
       return {
         success: false,
@@ -905,19 +864,6 @@ export async function handleUpdateWorkflow(
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error occurred'
     };
-  }
-}
-
-/**
- * Track workflow mutation for telemetry (full workflow updates)
- */
-async function trackWorkflowMutationForFullUpdate(data: any): Promise<void> {
-  try {
-    const { telemetry } = await import('../telemetry/telemetry-manager.js');
-    await telemetry.trackWorkflowMutation(data);
-  } catch (error) {
-    // Silently fail - telemetry should never break core functionality
-    logger.debug('Telemetry tracking failed:', error);
   }
 }
 
@@ -1089,11 +1035,6 @@ export async function handleValidateWorkflow(
     
     if (validationResult.suggestions.length > 0) {
       response.suggestions = validationResult.suggestions;
-    }
-
-    // Track successfully validated workflows in telemetry
-    if (validationResult.valid) {
-      telemetry.trackWorkflowCreation(workflow, true);
     }
 
     return {
@@ -1715,7 +1656,7 @@ export async function handleHealthCheck(context?: InstanceContext): Promise<McpT
       }
     };
 
-    // Add next steps guidance based on telemetry insights
+    // Add next steps guidance
     responseData.nextSteps = [
       '• Create workflow: n8n_create_workflow',
       '• List workflows: n8n_list_workflows',
@@ -1728,27 +1669,12 @@ export async function handleHealthCheck(context?: InstanceContext): Promise<McpT
       responseData.updateWarning = `⚠️  n8n-mcp v${versionCheck.latestVersion} is available (you have v${versionCheck.currentVersion}). Update recommended.`;
     }
 
-    // Track result in telemetry
-    telemetry.trackEvent('health_check_completed', {
-      success: true,
-      responseTimeMs: responseTime,
-      upToDate: !versionCheck.isOutdated,
-      apiConnected: true
-    });
-
     return {
       success: true,
       data: responseData
     };
   } catch (error) {
     const responseTime = Date.now() - startTime;
-
-    // Track failure in telemetry
-    telemetry.trackEvent('health_check_failed', {
-      success: false,
-      responseTimeMs: responseTime,
-      errorType: error instanceof N8nApiError ? error.code : 'unknown'
-    });
 
     if (error instanceof N8nApiError) {
       return {
@@ -2052,7 +1978,7 @@ export async function handleDiagnostic(request: any, context?: InstanceContext):
     modeSpecificDebug: getModeSpecificDebug(mcpMode)
   };
 
-  // Enhanced guidance based on telemetry insights
+  // Provide next steps when API is working
   if (apiConfigured && apiStatus.connected) {
     // API is working - provide next steps
     diagnostic.nextSteps = {
@@ -2193,17 +2119,6 @@ export async function handleDiagnostic(request: any, context?: InstanceContext):
       cacheMetrics: cacheMetricsData
     };
   }
-
-  // Track diagnostic usage with result data
-  telemetry.trackEvent('diagnostic_completed', {
-    success: true,
-    apiConfigured,
-    apiConnected: apiStatus.connected,
-    toolsAvailable: totalTools,
-    responseTimeMs: responseTime,
-    upToDate: !versionCheck.isOutdated,
-    verbose
-  });
 
   return {
     success: true,

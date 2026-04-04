@@ -70,10 +70,8 @@ const node_utils_1 = require("../utils/node-utils");
 const node_type_normalizer_1 = require("../utils/node-type-normalizer");
 const validation_schemas_1 = require("../utils/validation-schemas");
 const protocol_version_1 = require("../utils/protocol-version");
-const telemetry_1 = require("../telemetry");
-const startup_checkpoints_1 = require("../telemetry/startup-checkpoints");
 class N8NDocumentationMCPServer {
-    constructor(instanceContext, earlyLogger, options) {
+    constructor(instanceContext, options) {
         this.db = null;
         this.repository = null;
         this.templateService = null;
@@ -81,7 +79,6 @@ class N8NDocumentationMCPServer {
         this.clientInfo = null;
         this.previousTool = null;
         this.previousToolTimestamp = Date.now();
-        this.earlyLogger = null;
         this.disabledToolsCache = null;
         this.useSharedDatabase = false;
         this.sharedDbState = null;
@@ -89,7 +86,6 @@ class N8NDocumentationMCPServer {
         this.dbHealthChecked = false;
         this.workflowPatternsCache = null;
         this.instanceContext = instanceContext;
-        this.earlyLogger = earlyLogger || null;
         this.generateWorkflowHandler = options?.generateWorkflowHandler;
         const envDbPath = process.env.NODE_DB_PATH;
         let dbPath = null;
@@ -115,17 +111,11 @@ class N8NDocumentationMCPServer {
             throw new Error('Database nodes.db not found. Please run npm run rebuild first.');
         }
         this.initialized = this.initializeDatabase(dbPath).then(() => {
-            if (this.earlyLogger) {
-                this.earlyLogger.logCheckpoint(startup_checkpoints_1.STARTUP_CHECKPOINTS.N8N_API_CHECKING);
-            }
             const apiConfigured = (0, n8n_api_1.isN8nApiConfigured)();
             const totalTools = apiConfigured ?
                 tools_1.n8nDocumentationToolsFinal.length + tools_n8n_manager_1.n8nManagementTools.length :
                 tools_1.n8nDocumentationToolsFinal.length;
             logger_1.logger.info(`MCP server initialized with ${totalTools} tools (n8n API: ${apiConfigured ? 'configured' : 'not configured'})`);
-            if (this.earlyLogger) {
-                this.earlyLogger.logCheckpoint(startup_checkpoints_1.STARTUP_CHECKPOINTS.N8N_API_READY);
-            }
         });
         this.initialized.catch(() => { });
         logger_1.logger.info('Initializing n8n Documentation MCP server');
@@ -188,7 +178,6 @@ class N8NDocumentationMCPServer {
             this.db = null;
             this.repository = null;
             this.templateService = null;
-            this.earlyLogger = null;
             this.sharedDbState = null;
         }
         catch (error) {
@@ -197,9 +186,6 @@ class N8NDocumentationMCPServer {
     }
     async initializeDatabase(dbPath) {
         try {
-            if (this.earlyLogger) {
-                this.earlyLogger.logCheckpoint(startup_checkpoints_1.STARTUP_CHECKPOINTS.DATABASE_CONNECTING);
-            }
             logger_1.logger.debug('Database initialization starting...', { dbPath });
             if (dbPath === ':memory:') {
                 this.db = await (0, database_adapter_1.createDatabaseAdapter)(dbPath);
@@ -223,9 +209,6 @@ class N8NDocumentationMCPServer {
             logger_1.logger.debug('Node repository initialized');
             logger_1.logger.debug('Template service initialized');
             logger_1.logger.debug('Similarity services initialized');
-            if (this.earlyLogger) {
-                this.earlyLogger.logCheckpoint(startup_checkpoints_1.STARTUP_CHECKPOINTS.DATABASE_CONNECTED);
-            }
             logger_1.logger.info(`Database initialized successfully from: ${dbPath}`);
         }
         catch (error) {
@@ -362,7 +345,6 @@ class N8NDocumentationMCPServer {
                 clientCapabilities,
                 clientInfo
             });
-            telemetry_1.telemetry.trackSessionStart();
             this.clientInfo = clientInfo;
             const negotiationResult = (0, protocol_version_1.negotiateProtocolVersion)(clientVersion, clientInfo, undefined, undefined);
             (0, protocol_version_1.logProtocolNegotiation)(negotiationResult, logger_1.logger, 'MCP_INITIALIZE');
@@ -512,11 +494,6 @@ class N8NDocumentationMCPServer {
                 const result = await this.executeTool(name, processedArgs);
                 const duration = Date.now() - startTime;
                 logger_1.logger.debug(`Tool ${name} executed successfully`);
-                telemetry_1.telemetry.trackToolUsage(name, true, duration);
-                if (this.previousTool) {
-                    const timeDelta = Date.now() - this.previousToolTimestamp;
-                    telemetry_1.telemetry.trackToolSequence(this.previousTool, name, timeDelta);
-                }
                 this.previousTool = name;
                 this.previousToolTimestamp = Date.now();
                 let responseText;
@@ -556,12 +533,6 @@ class N8NDocumentationMCPServer {
             catch (error) {
                 logger_1.logger.error(`Error executing tool ${name}`, error);
                 const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-                telemetry_1.telemetry.trackToolUsage(name, false);
-                telemetry_1.telemetry.trackError(error instanceof Error ? error.constructor.name : 'UnknownError', `tool_execution`, name, errorMessage);
-                if (this.previousTool) {
-                    const timeDelta = Date.now() - this.previousToolTimestamp;
-                    telemetry_1.telemetry.trackToolSequence(this.previousTool, name, timeDelta);
-                }
                 this.previousTool = name;
                 this.previousToolTimestamp = Date.now();
                 let helpfulMessage = `Error executing tool ${name}: ${errorMessage}`;
@@ -1457,7 +1428,6 @@ class N8NDocumentationMCPServer {
                     logger_1.logger.error(`Failed to add examples:`, error);
                 }
             }
-            telemetry_1.telemetry.trackSearchQuery(query, scoredNodes.length, mode ?? 'OR');
             return result;
         }
         catch (error) {
@@ -1465,7 +1435,6 @@ class N8NDocumentationMCPServer {
             if (error.message.includes('syntax error') || error.message.includes('fts5')) {
                 logger_1.logger.warn(`FTS5 syntax error for query "${query}" in mode ${mode}`);
                 const likeResult = await this.searchNodesLIKE(query, limit);
-                telemetry_1.telemetry.trackSearchQuery(query, likeResult.results?.length ?? 0, `${mode}_LIKE_FALLBACK`);
                 return {
                     ...likeResult,
                     mode
@@ -3116,18 +3085,6 @@ Full documentation is being prepared. For now, use get_node_essentials for confi
             if (result.suggestions.length > 0) {
                 response.suggestions = result.suggestions;
             }
-            if (!result.valid && result.errors.length > 0) {
-                result.errors.forEach(error => {
-                    telemetry_1.telemetry.trackValidationDetails(error.nodeName || 'workflow', error.type || 'validation_error', {
-                        message: error.message,
-                        nodeCount: workflow.nodes?.length ?? 0,
-                        hasConnections: Object.keys(workflow.connections || {}).length > 0
-                    });
-                });
-            }
-            if (result.valid) {
-                telemetry_1.telemetry.trackWorkflowCreation(workflow, true);
-            }
             return response;
         }
         catch (error) {
@@ -3307,7 +3264,6 @@ Full documentation is being prepared. For now, use get_node_essentials for confi
         this.db = null;
         this.repository = null;
         this.templateService = null;
-        this.earlyLogger = null;
         this.sharedDbState = null;
     }
 }

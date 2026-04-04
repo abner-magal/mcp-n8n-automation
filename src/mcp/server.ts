@@ -43,9 +43,6 @@ import {
 } from '../utils/protocol-version';
 import { InstanceContext } from '../types/instance-context';
 import { GenerateWorkflowHandler, GenerateWorkflowHelpers } from '../types/generate-workflow';
-import { telemetry } from '../telemetry';
-import { EarlyErrorLogger } from '../telemetry/early-error-logger';
-import { STARTUP_CHECKPOINTS } from '../telemetry/startup-checkpoints';
 
 interface NodeRow {
   node_type: string;
@@ -158,16 +155,14 @@ export class N8NDocumentationMCPServer {
   private instanceContext?: InstanceContext;
   private previousTool: string | null = null;
   private previousToolTimestamp: number = Date.now();
-  private earlyLogger: EarlyErrorLogger | null = null;
   private disabledToolsCache: Set<string> | null = null;
-  private useSharedDatabase: boolean = false;  // Track if using shared DB for cleanup
-  private sharedDbState: SharedDatabaseState | null = null;  // Reference to shared DB state for release
-  private isShutdown: boolean = false;  // Prevent double-shutdown
+  private useSharedDatabase: boolean = false;
+  private sharedDbState: SharedDatabaseState | null = null;
+  private isShutdown: boolean = false;
   private generateWorkflowHandler?: GenerateWorkflowHandler;
 
-  constructor(instanceContext?: InstanceContext, earlyLogger?: EarlyErrorLogger, options?: MCPServerOptions) {
+  constructor(instanceContext?: InstanceContext, options?: MCPServerOptions) {
     this.instanceContext = instanceContext;
-    this.earlyLogger = earlyLogger || null;
     this.generateWorkflowHandler = options?.generateWorkflowHandler;
     // Check for test environment first
     const envDbPath = process.env.NODE_DB_PATH;
@@ -200,11 +195,6 @@ export class N8NDocumentationMCPServer {
     
     // Initialize database asynchronously
     this.initialized = this.initializeDatabase(dbPath).then(() => {
-      // After database is ready, check n8n API configuration (v2.18.3)
-      if (this.earlyLogger) {
-        this.earlyLogger.logCheckpoint(STARTUP_CHECKPOINTS.N8N_API_CHECKING);
-      }
-
       // Log n8n API configuration status at startup
       const apiConfigured = isN8nApiConfigured();
       const totalTools = apiConfigured ?
@@ -212,10 +202,6 @@ export class N8NDocumentationMCPServer {
         n8nDocumentationToolsFinal.length;
 
       logger.info(`MCP server initialized with ${totalTools} tools (n8n API: ${apiConfigured ? 'configured' : 'not configured'})`);
-
-      if (this.earlyLogger) {
-        this.earlyLogger.logCheckpoint(STARTUP_CHECKPOINTS.N8N_API_READY);
-      }
     });
 
     // Attach a no-op catch handler to prevent Node.js from flagging this as an
@@ -315,7 +301,6 @@ export class N8NDocumentationMCPServer {
       this.db = null;
       this.repository = null;
       this.templateService = null;
-      this.earlyLogger = null;
       this.sharedDbState = null;
     } catch (error) {
       // Log but don't throw - cleanup should be best-effort
@@ -325,11 +310,6 @@ export class N8NDocumentationMCPServer {
 
   private async initializeDatabase(dbPath: string): Promise<void> {
     try {
-      // Checkpoint: Database connecting (v2.18.3)
-      if (this.earlyLogger) {
-        this.earlyLogger.logCheckpoint(STARTUP_CHECKPOINTS.DATABASE_CONNECTING);
-      }
-
       logger.debug('Database initialization starting...', { dbPath });
 
       // For in-memory databases (tests), create a dedicated connection
@@ -359,11 +339,6 @@ export class N8NDocumentationMCPServer {
       logger.debug('Node repository initialized');
       logger.debug('Template service initialized');
       logger.debug('Similarity services initialized');
-
-      // Checkpoint: Database connected (v2.18.3)
-      if (this.earlyLogger) {
-        this.earlyLogger.logCheckpoint(STARTUP_CHECKPOINTS.DATABASE_CONNECTED);
-      }
 
       logger.info(`Database initialized successfully from: ${dbPath}`);
     } catch (error) {
@@ -555,9 +530,6 @@ export class N8NDocumentationMCPServer {
         clientCapabilities,
         clientInfo
       });
-
-      // Track session start
-      telemetry.trackSessionStart();
 
       // Store client info for later use
       this.clientInfo = clientInfo;
@@ -775,15 +747,6 @@ export class N8NDocumentationMCPServer {
         const duration = Date.now() - startTime;
         logger.debug(`Tool ${name} executed successfully`);
 
-        // Track tool usage and sequence
-        telemetry.trackToolUsage(name, true, duration);
-
-        // Track tool sequence if there was a previous tool
-        if (this.previousTool) {
-          const timeDelta = Date.now() - this.previousToolTimestamp;
-          telemetry.trackToolSequence(this.previousTool, name, timeDelta);
-        }
-
         // Update previous tool tracking
         this.previousTool = name;
         this.previousToolTimestamp = Date.now();
@@ -833,21 +796,6 @@ export class N8NDocumentationMCPServer {
       } catch (error) {
         logger.error(`Error executing tool ${name}`, error);
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-
-        // Track tool error
-        telemetry.trackToolUsage(name, false);
-        telemetry.trackError(
-          error instanceof Error ? error.constructor.name : 'UnknownError',
-          `tool_execution`,
-          name,
-          errorMessage
-        );
-
-        // Track tool sequence even for errors
-        if (this.previousTool) {
-          const timeDelta = Date.now() - this.previousToolTimestamp;
-          telemetry.trackToolSequence(this.previousTool, name, timeDelta);
-        }
 
         // Update previous tool tracking (even for failed tools)
         this.previousTool = name;
@@ -1976,11 +1924,8 @@ export class N8NDocumentationMCPServer {
         }
       }
 
-      // Track search query telemetry
-      telemetry.trackSearchQuery(query, scoredNodes.length, mode ?? 'OR');
-
       return result;
-      
+
     } catch (error: any) {
       // If FTS5 query fails, fallback to LIKE search
       logger.warn('FTS5 search failed, falling back to LIKE search:', error.message);
@@ -1991,9 +1936,6 @@ export class N8NDocumentationMCPServer {
         
         // For problematic queries, use LIKE search with mode info
         const likeResult = await this.searchNodesLIKE(query, limit);
-
-        // Track search query telemetry for fallback
-        telemetry.trackSearchQuery(query, likeResult.results?.length ?? 0, `${mode}_LIKE_FALLBACK`);
 
         return {
           ...likeResult,
@@ -4193,27 +4135,6 @@ Full documentation is being prepared. For now, use get_node_essentials for confi
         response.suggestions = result.suggestions;
       }
 
-      // Track validation details in telemetry
-      if (!result.valid && result.errors.length > 0) {
-        // Track each validation error for analysis
-        result.errors.forEach(error => {
-          telemetry.trackValidationDetails(
-            error.nodeName || 'workflow',
-            error.type || 'validation_error',
-            {
-              message: error.message,
-              nodeCount: workflow.nodes?.length ?? 0,
-              hasConnections: Object.keys(workflow.connections || {}).length > 0
-            }
-          );
-        });
-      }
-
-      // Track successfully validated workflows in telemetry
-      if (result.valid) {
-        telemetry.trackWorkflowCreation(workflow, true);
-      }
-
       return response;
     } catch (error) {
       logger.error('Error validating workflow:', error);
@@ -4450,7 +4371,6 @@ Full documentation is being prepared. For now, use get_node_essentials for confi
     this.db = null;
     this.repository = null;
     this.templateService = null;
-    this.earlyLogger = null;
     this.sharedDbState = null;
   }
 }
