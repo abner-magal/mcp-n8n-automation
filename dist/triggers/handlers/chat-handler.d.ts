@@ -18,8 +18,8 @@ export declare class ChatHandler extends BaseTriggerHandler<ChatTriggerInput> {
         workflowId: string;
         triggerType: "chat";
         message: string;
-        sessionId?: string | undefined;
         data?: Record<string, unknown> | undefined;
+        sessionId?: string | undefined;
         headers?: Record<string, string> | undefined;
         timeout?: number | undefined;
         waitForResponse?: boolean | undefined;
@@ -27,8 +27,8 @@ export declare class ChatHandler extends BaseTriggerHandler<ChatTriggerInput> {
         workflowId: string;
         triggerType: "chat";
         message: string;
-        sessionId?: string | undefined;
         data?: Record<string, unknown> | undefined;
+        sessionId?: string | undefined;
         headers?: Record<string, string> | undefined;
         timeout?: number | undefined;
         waitForResponse?: boolean | undefined;

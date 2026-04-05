@@ -8,6 +8,8 @@ const templates_1 = require("./templates");
 const system_1 = require("./system");
 const guides_1 = require("./guides");
 const workflow_management_1 = require("./workflow_management");
+const tags_management_1 = require("./tags_management");
+const variables_management_1 = require("./variables_management");
 exports.toolsDocumentation = {
     tools_documentation: system_1.toolsDocumentationDoc,
     n8n_health_check: system_1.n8nHealthCheckDoc,
@@ -31,6 +33,11 @@ exports.toolsDocumentation = {
     n8n_workflow_versions: workflow_management_1.n8nWorkflowVersionsDoc,
     n8n_deploy_template: workflow_management_1.n8nDeployTemplateDoc,
     n8n_manage_datatable: workflow_management_1.n8nManageDatatableDoc,
-    n8n_generate_workflow: workflow_management_1.n8nGenerateWorkflowDoc
+    n8n_generate_workflow: workflow_management_1.n8nGenerateWorkflowDoc,
+    n8n_list_tags: tags_management_1.n8nListTagsDoc,
+    n8n_create_tag: tags_management_1.n8nCreateTagDoc,
+    n8n_list_variables: variables_management_1.n8nListVariablesDoc,
+    n8n_create_variable: variables_management_1.n8nCreateVariableDoc,
+    n8n_update_variable: variables_management_1.n8nUpdateVariableDoc
 };
 //# sourceMappingURL=index.js.map

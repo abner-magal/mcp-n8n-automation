@@ -45,8 +45,14 @@ const path_1 = __importDefault(require("path"));
 const tools_1 = require("./tools");
 const ui_1 = require("./ui");
 const tools_n8n_manager_1 = require("./tools-n8n-manager");
+const tools_tags_1 = require("./tools-tags");
+const tools_variables_1 = require("./tools-variables");
+const tools_advanced_1 = require("./tools-advanced");
 const tools_n8n_friendly_1 = require("./tools-n8n-friendly");
 const tools_docs_fallback_1 = require("./tools-docs-fallback");
+const tools_credentials_1 = require("./tools-credentials");
+const tools_execution_1 = require("./tools-execution");
+const tools_ai_workflow_1 = require("./tools-ai-workflow");
 const workflow_examples_1 = require("./workflow-examples");
 const logger_1 = require("../utils/logger");
 const node_repository_1 = require("../database/node-repository");
@@ -64,6 +70,7 @@ const workflow_validator_1 = require("../services/workflow-validator");
 const n8n_api_1 = require("../config/n8n-api");
 const n8nHandlers = __importStar(require("./handlers-n8n-manager"));
 const handlers_workflow_diff_1 = require("./handlers-workflow-diff");
+const handlers_ai_workflow_1 = require("./handlers-ai-workflow");
 const tools_documentation_1 = require("./tools-documentation");
 const version_1 = require("../utils/version");
 const node_utils_1 = require("../utils/node-utils");
@@ -378,8 +385,11 @@ class N8NDocumentationMCPServer {
             const shouldIncludeManagementTools = hasEnvConfig || hasInstanceConfig || isMultiTenantEnabled;
             if (shouldIncludeManagementTools) {
                 const enabledMgmtTools = tools_n8n_manager_1.n8nManagementTools.filter(tool => !disabledTools.has(tool.name));
-                tools.push(...enabledMgmtTools);
-                logger_1.logger.debug(`Tool listing: ${tools.length} tools available (${enabledDocTools.length} documentation + ${enabledMgmtTools.length} management)`, {
+                const enabledCredentialTools = tools_credentials_1.credentialTools.filter(tool => !disabledTools.has(tool.name));
+                const enabledExecutionTools = tools_execution_1.executionTools.filter(tool => !disabledTools.has(tool.name));
+                const enabledAiWorkflowTools = [tools_ai_workflow_1.n8n_create_from_prompt, tools_ai_workflow_1.n8n_suggest_nodes].filter(tool => !disabledTools.has(tool.name));
+                tools.push(...enabledMgmtTools, ...enabledCredentialTools, ...enabledExecutionTools, ...enabledAiWorkflowTools);
+                logger_1.logger.debug(`Tool listing: ${tools.length} tools available (${enabledDocTools.length} documentation + ${enabledMgmtTools.length} management + ${enabledCredentialTools.length} credentials + ${enabledExecutionTools.length} execution + ${enabledAiWorkflowTools.length} AI workflow)`, {
                     hasEnvConfig,
                     hasInstanceConfig,
                     isMultiTenantEnabled,
@@ -395,7 +405,8 @@ class N8NDocumentationMCPServer {
                 });
             }
             if (disabledTools.size > 0) {
-                const totalAvailableTools = tools_1.n8nDocumentationToolsFinal.length + (shouldIncludeManagementTools ? tools_n8n_manager_1.n8nManagementTools.length : 0);
+                const totalAvailableTools = tools_1.n8nDocumentationToolsFinal.length +
+                    (shouldIncludeManagementTools ? tools_n8n_manager_1.n8nManagementTools.length + tools_credentials_1.credentialTools.length + tools_execution_1.executionTools.length : 0);
                 logger_1.logger.debug(`Filtered ${disabledTools.size} disabled tools, ${tools.length}/${totalAvailableTools} tools available`);
             }
             const clientInfo = this.clientInfo;
@@ -750,7 +761,7 @@ class N8NDocumentationMCPServer {
         if (!args || typeof args !== 'object') {
             return false;
         }
-        const allTools = [...tools_1.n8nDocumentationToolsFinal, ...tools_n8n_manager_1.n8nManagementTools];
+        const allTools = [...tools_1.n8nDocumentationToolsFinal, ...tools_n8n_manager_1.n8nManagementTools, ...tools_tags_1.tagsTools, ...tools_variables_1.variablesTools, ...tools_advanced_1.advancedWorkflowTools, ...tools_credentials_1.credentialTools, ...tools_execution_1.executionTools];
         const tool = allTools.find(t => t.name === toolName);
         if (!tool || !tool.inputSchema) {
             return true;
@@ -802,7 +813,7 @@ class N8NDocumentationMCPServer {
     coerceStringifiedJsonParams(toolName, args) {
         if (!args || typeof args !== 'object')
             return args;
-        const allTools = [...tools_1.n8nDocumentationToolsFinal, ...tools_n8n_manager_1.n8nManagementTools];
+        const allTools = [...tools_1.n8nDocumentationToolsFinal, ...tools_n8n_manager_1.n8nManagementTools, ...tools_tags_1.tagsTools, ...tools_variables_1.variablesTools, ...tools_advanced_1.advancedWorkflowTools, ...tools_credentials_1.credentialTools, ...tools_execution_1.executionTools];
         const tool = allTools.find(t => t.name === toolName);
         if (!tool?.inputSchema?.properties)
             return args;
@@ -1018,6 +1029,8 @@ class N8NDocumentationMCPServer {
             case 'n8n_create_workflow':
                 this.validateToolParams(name, args, ['name', 'nodes', 'connections']);
                 return n8nHandlers.handleCreateWorkflow(args, this.instanceContext);
+            case 'n8n_create_from_prompt':
+                return (0, handlers_ai_workflow_1.handleCreateFromPrompt)(args, this.instanceContext);
             case 'n8n_get_workflow': {
                 this.validateToolParams(name, args, ['id']);
                 const workflowMode = args.mode || 'full';
@@ -1079,6 +1092,40 @@ class N8NDocumentationMCPServer {
                         throw new Error(`Unknown action: ${execAction}. Valid actions: get, list, delete`);
                 }
             }
+            case 'n8n_list_tags':
+                return n8nHandlers.handleListTags(args, this.instanceContext);
+            case 'n8n_create_tag':
+                return n8nHandlers.handleCreateTag(args, this.instanceContext);
+            case 'n8n_list_variables':
+                return n8nHandlers.handleListVariables(args, this.instanceContext);
+            case 'n8n_create_variable':
+                return n8nHandlers.handleCreateVariable(args, this.instanceContext);
+            case 'n8n_update_variable':
+                return n8nHandlers.handleUpdateVariable(args, this.instanceContext);
+            case 'n8n_search_workflows':
+                return n8nHandlers.handleSearchWorkflows(args, this.instanceContext);
+            case 'n8n_duplicate_workflow':
+                return n8nHandlers.handleDuplicateWorkflow(args, this.instanceContext);
+            case 'n8n_export_workflow':
+                return n8nHandlers.handleExportWorkflow(args, this.instanceContext);
+            case 'n8n_get_workflow_connections':
+                return n8nHandlers.handleGetWorkflowConnections(args, this.instanceContext);
+            case 'n8n_batch_create_workflows':
+                return n8nHandlers.handleBatchCreateWorkflows(args, this.instanceContext);
+            case 'n8n_execute_workflow':
+                return n8nHandlers.handleExecuteWorkflow(args, this.instanceContext);
+            case 'n8n_retry_execution':
+                return n8nHandlers.handleRetryExecution(args, this.instanceContext);
+            case 'n8n_list_credentials':
+                return n8nHandlers.handleListCredentials(args, this.instanceContext);
+            case 'n8n_get_credential':
+                return n8nHandlers.handleGetCredential(args, this.instanceContext);
+            case 'n8n_create_credential':
+                return n8nHandlers.handleCreateCredential(args, this.instanceContext);
+            case 'n8n_update_credential':
+                return n8nHandlers.handleUpdateCredential(args, this.instanceContext);
+            case 'n8n_delete_credential':
+                return n8nHandlers.handleDeleteCredential(args, this.instanceContext);
             case 'n8n_health_check':
                 if (args.mode === 'diagnostic') {
                     return n8nHandlers.handleDiagnostic({ params: { arguments: args } }, this.instanceContext);
@@ -1155,9 +1202,16 @@ class N8NDocumentationMCPServer {
                 this.validateToolParams(name, args, ['query']);
                 return n8nHandlers.handleSearchExternalDocs(args);
             }
+            case 'n8n_search_kapa_ai': {
+                this.validateToolParams(name, args, ['query']);
+                return n8nHandlers.handleSearchKapaAi(args);
+            }
             case 'n8n_suggest_nodes': {
-                this.validateToolParams(name, args, ['task']);
-                return n8nHandlers.handleSuggestNodes(args);
+                return (0, handlers_ai_workflow_1.handleSuggestNodes)(args);
+            }
+            case 'n8n_search_llms_txt': {
+                this.validateToolParams(name, args, ['query']);
+                return n8nHandlers.handleSearchLlmsTxt(args);
             }
             default:
                 throw new Error(`Unknown tool: ${name}`);

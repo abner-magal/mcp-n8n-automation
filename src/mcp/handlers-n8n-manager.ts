@@ -45,6 +45,13 @@ import {
 } from '../utils/cache-utils';
 import { processExecution } from '../services/execution-processor';
 import { checkNpmVersion, formatVersionMessage } from '../utils/npm-version-checker';
+import { getKapaAiClient } from '../services/kapa-ai-client';
+import { getLlmsTxtService, LlmsTxtSearchResult } from '../services/llms-txt-service';
+import {
+  getDocsFallbackService,
+  DocsFallbackService,
+  DocsSearchResult,
+} from '../services/docs-fallback-service';
 
 // ========================================================================
 // TypeScript Interfaces for Type Safety
@@ -2891,11 +2898,15 @@ export async function handleDeleteRows(args: unknown, context?: InstanceContext)
 /**
  * Search external n8n documentation using layered fallback strategy.
  * Layer 1: Kapa.ai MCP → Layer 2: llms.txt → Layer 3: docs.n8n.io link
+ *
+ * When source='auto': uses the DocsFallbackService orchestrator.
+ * When source='kapa_ai': queries Kapa.ai directly (no fallback).
+ * When source='llms_txt': queries llms.txt directly (no fallback).
  */
 export async function handleSearchExternalDocs(args: unknown): Promise<McpToolResponse> {
   const schema = z.object({
     query: z.string().min(1),
-    source: z.enum(['auto', 'kapa', 'llms-txt']).default('auto'),
+    source: z.enum(['auto', 'kapa_ai', 'llms_txt']).default('auto'),
   });
 
   const parsed = schema.safeParse(args);
@@ -2907,114 +2918,197 @@ export async function handleSearchExternalDocs(args: unknown): Promise<McpToolRe
   }
 
   const { query, source } = parsed.data;
-  const results: string[] = [];
+  const orchestrator = getDocsFallbackService();
 
-  // Layer 1: Kapa.ai (if auto or kapa)
-  if (source === 'auto' || source === 'kapa') {
-    try {
-      const kapaResult = await searchKapaAi(query);
-      if (kapaResult) {
-        results.push(`## Kapa.ai Results\n\n${kapaResult}`);
-      }
-    } catch (error) {
-      logger.debug('Kapa.ai search failed, falling back', { query, error: error instanceof Error ? error.message : 'unknown' });
-      if (source === 'kapa') {
-        return {
-          success: false,
-          error: `Kapa.ai search failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
-        };
-      }
+  try {
+    let result: DocsSearchResult | null = null;
+
+    if (source === 'kapa_ai') {
+      result = await orchestrator.searchKapaOnly(query);
+    } else if (source === 'llms_txt') {
+      result = await orchestrator.searchLlmsTxtOnly(query);
+    } else {
+      result = await orchestrator.search(query);
     }
-  }
 
-  // Layer 2: llms.txt (if auto and Kapa failed, or if explicitly requested)
-  if ((source === 'auto' && results.length === 0) || source === 'llms-txt') {
-    try {
-      const llmsResult = await searchLlmsTxt(query);
-      if (llmsResult) {
-        results.push(`## llms.txt Results\n\n${llmsResult}`);
-      }
-    } catch (error) {
-      logger.debug('llms.txt search failed', { query, error: error instanceof Error ? error.message : 'unknown' });
-      if (source === 'llms-txt') {
-        return {
-          success: false,
-          error: `llms.txt search failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
-        };
-      }
+    if (!result) {
+      const searchUrl = `https://docs.n8n.io/search/?q=${encodeURIComponent(query)}`;
+      return {
+        success: true,
+        message: `No results found. Search n8n documentation directly: ${searchUrl}`,
+      };
     }
-  }
 
-  // Layer 3: Fallback to docs.n8n.io link
-  if (results.length === 0) {
-    const searchUrl = `https://docs.n8n.io/search/?q=${encodeURIComponent(query)}`;
+    const sourceLabel = result.source === 'kapa_ai' ? 'Kapa.ai' : result.source === 'llms_txt' ? 'llms.txt' : 'n8n Docs';
+    let response = `## ${sourceLabel} Search Results\n\n${result.content}`;
+
+    if (result.confidence !== undefined) {
+      response = `## ${sourceLabel} Search Results (Confidence: ${Math.round(result.confidence * 100)}%)\n\n${result.content}`;
+    }
+
+    response += `\n\n---\n\n*Source: ${sourceLabel} | Time: ${result.elapsedMs}ms*`;
+    response += `\n\nFor more details, visit: https://docs.n8n.io/search/?q=${encodeURIComponent(query)}`;
+
     return {
       success: true,
-      message: `No results found in external sources. Search n8n documentation directly: ${searchUrl}`,
+      message: response,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    logger.debug('handleSearchExternalDocs failed', { query: query.slice(0, 100), error: message });
+
+    const searchUrl = `https://docs.n8n.io/search/?q=${encodeURIComponent(query)}`;
+    return {
+      success: false,
+      error: `External docs search failed: ${message}. Search directly: ${searchUrl}`,
+    };
+  }
+}
+
+// ========================================================================
+// llms.txt Search Tool (D.2)
+// ========================================================================
+
+/**
+ * Search n8n documentation via llms.txt index.
+ * This is Layer 2 of the documentation fallback strategy.
+ * Fetches the machine-readable llms.txt from docs.n8n.io and performs keyword search.
+ */
+export async function handleSearchLlmsTxt(args: unknown): Promise<McpToolResponse> {
+  const schema = z.object({
+    query: z.string().min(1),
+    maxResults: z.number().min(1).max(20).default(5),
+  });
+
+  const parsed = schema.safeParse(args);
+  if (!parsed.success) {
+    return {
+      success: false,
+      error: `Invalid input: ${parsed.error.message}`,
     };
   }
 
-  return {
-    success: true,
-    message: results.join('\n\n---\n\n') + `\n\n---\n\nFor more details, visit: https://docs.n8n.io/search/?q=${encodeURIComponent(query)}`,
-  };
-}
+  const { query, maxResults } = parsed.data;
 
-/**
- * Search Kapa.ai documentation via their API
- */
-async function searchKapaAi(query: string): Promise<string | null> {
-  const searchUrl = `https://n8n.mcp.kapa.ai/`;
-  return `To search Kapa.ai MCP for "${query}":\n1. Connect to Kapa.ai MCP server at ${searchUrl}\n2. Use the search_n8n_knowledge_sources tool with query: "${query}"\n\nKapa.ai provides semantic search across official n8n documentation.`;
-}
-
-/**
- * Search llms.txt documentation
- */
-async function searchLlmsTxt(query: string): Promise<string | null> {
   try {
-    const response = await fetch('https://docs.n8n.io/llms.txt', {
-      method: 'GET',
-      signal: AbortSignal.timeout(10000),
+    const service = getLlmsTxtService();
+    const results = await service.search(query, maxResults);
+
+    if (results.length === 0) {
+      return {
+        success: true,
+        message: `No results found in llms.txt for "${query}". Try rephrasing your query or search n8n documentation directly at https://docs.n8n.io/search/?q=${encodeURIComponent(query)}`,
+      };
+    }
+
+    const formattedResults = results.map((result: LlmsTxtSearchResult, index: number) => {
+      const { chunk, score } = result;
+      let output = `**${index + 1}. ${chunk.title}**`;
+
+      if (chunk.section) {
+        output += ` (Section: ${chunk.section})`;
+      }
+
+      output += ` — Relevance: ${score}\n`;
+
+      if (chunk.url) {
+        output += `🔗 ${chunk.url}\n`;
+      }
+
+      if (chunk.content) {
+        const preview = chunk.content.length > 500
+          ? chunk.content.slice(0, 500) + '...'
+          : chunk.content;
+        output += `${preview}`;
+      }
+
+      return output;
     });
 
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
+    const response = `## llms.txt Search Results for "${query}"\n\n${formattedResults.join('\n\n---\n\n')}`;
+
+    return {
+      success: true,
+      message: response + `\n\n---\n\nFor more details, visit: https://docs.n8n.io/search/?q=${encodeURIComponent(query)}`,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    logger.debug('handleSearchLlmsTxt failed', { query, error: message });
+
+    return {
+      success: false,
+      error: `llms.txt search failed: ${message}. Try searching directly at https://docs.n8n.io/search/?q=${encodeURIComponent(query)}`,
+    };
+  }
+}
+
+// ========================================================================
+// Kapa.ai Search Tool
+// ========================================================================
+
+/**
+ * Search n8n documentation using Kapa.ai MCP server directly.
+ * This is Layer 1 of the documentation fallback strategy.
+ */
+export async function handleSearchKapaAi(args: unknown): Promise<McpToolResponse> {
+  const schema = z.object({
+    query: z.string().min(1),
+    includeSources: z.boolean().default(true),
+  });
+
+  const parsed = schema.safeParse(args);
+  if (!parsed.success) {
+    return {
+      success: false,
+      error: `Invalid input: ${parsed.error.message}`,
+    };
+  }
+
+  const { query, includeSources } = parsed.data;
+
+  try {
+    const client = getKapaAiClient();
+    const result = await client.search(query);
+
+    if (!result.success) {
+      return {
+        success: false,
+        error: result.error ?? 'Kapa.ai search returned no results',
+      };
     }
 
-    const content = await response.text();
-    const lowerQuery = query.toLowerCase();
-    const lines = content.split('\n');
-
-    // Find relevant sections
-    const matches: string[] = [];
-    let inRelevantSection = false;
-
-    for (const line of lines) {
-      if (line.startsWith('#')) {
-        if (inRelevantSection && matches.length < 500) {
-          inRelevantSection = false;
-        }
-        if (line.toLowerCase().includes(lowerQuery)) {
-          inRelevantSection = true;
-          matches.push(line);
-        }
-      } else if (inRelevantSection && line.trim() && matches.length < 500) {
-        matches.push(line);
-      }
+    if (result.results.length === 0) {
+      return {
+        success: true,
+        message: `No results found in Kapa.ai for "${query}". Try rephrasing your question or check the n8n documentation directly at https://docs.n8n.io/search/?q=${encodeURIComponent(query)}`,
+      };
     }
 
-    if (matches.length === 0) {
-      const preview = lines.slice(0, 200).filter(l => l.trim()).join('\n');
-      if (preview.toLowerCase().includes(lowerQuery)) {
-        return preview.slice(0, 3000);
-      }
-      return null;
+    const firstResult = result.results[0];
+    let response = `## Kapa.ai Search Results\n\n${firstResult.answer}`;
+
+    if (includeSources && firstResult.source) {
+      response += `\n\n**Source:** ${firstResult.source}`;
     }
 
-    return matches.join('\n').slice(0, 4000);
-  } catch {
-    return null;
+    if (firstResult.confidence !== undefined) {
+      response += `\n**Confidence:** ${Math.round(firstResult.confidence * 100)}%`;
+    }
+
+    response += `\n\n---\n\nFor more details, visit: https://docs.n8n.io/search/?q=${encodeURIComponent(query)}`;
+
+    return {
+      success: true,
+      message: response,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    logger.debug('handleSearchKapaAi failed', { query, error: message });
+
+    return {
+      success: false,
+      error: `Kapa.ai search failed: ${message}`,
+    };
   }
 }
 

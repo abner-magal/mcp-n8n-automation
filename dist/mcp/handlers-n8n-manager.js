@@ -68,7 +68,26 @@ exports.handleUpdateRows = handleUpdateRows;
 exports.handleUpsertRows = handleUpsertRows;
 exports.handleDeleteRows = handleDeleteRows;
 exports.handleSearchExternalDocs = handleSearchExternalDocs;
+exports.handleSearchLlmsTxt = handleSearchLlmsTxt;
+exports.handleSearchKapaAi = handleSearchKapaAi;
 exports.handleSuggestNodes = handleSuggestNodes;
+exports.handleListTags = handleListTags;
+exports.handleCreateTag = handleCreateTag;
+exports.handleListVariables = handleListVariables;
+exports.handleCreateVariable = handleCreateVariable;
+exports.handleUpdateVariable = handleUpdateVariable;
+exports.handleSearchWorkflows = handleSearchWorkflows;
+exports.handleDuplicateWorkflow = handleDuplicateWorkflow;
+exports.handleExportWorkflow = handleExportWorkflow;
+exports.handleGetWorkflowConnections = handleGetWorkflowConnections;
+exports.handleBatchCreateWorkflows = handleBatchCreateWorkflows;
+exports.handleExecuteWorkflow = handleExecuteWorkflow;
+exports.handleRetryExecution = handleRetryExecution;
+exports.handleListCredentials = handleListCredentials;
+exports.handleGetCredential = handleGetCredential;
+exports.handleCreateCredential = handleCreateCredential;
+exports.handleUpdateCredential = handleUpdateCredential;
+exports.handleDeleteCredential = handleDeleteCredential;
 const n8n_api_client_1 = require("../services/n8n-api-client");
 const n8n_api_1 = require("../config/n8n-api");
 const n8n_api_2 = require("../types/n8n-api");
@@ -86,6 +105,9 @@ const handlers_workflow_diff_1 = require("./handlers-workflow-diff");
 const cache_utils_1 = require("../utils/cache-utils");
 const execution_processor_1 = require("../services/execution-processor");
 const npm_version_checker_1 = require("../utils/npm-version-checker");
+const kapa_ai_client_1 = require("../services/kapa-ai-client");
+const llms_txt_service_1 = require("../services/llms-txt-service");
+const docs_fallback_service_1 = require("../services/docs-fallback-service");
 let defaultApiClient = null;
 let lastDefaultConfigUrl = null;
 const cacheMutex = new cache_utils_1.CacheMutex();
@@ -2248,7 +2270,7 @@ async function handleDeleteRows(args, context) {
 async function handleSearchExternalDocs(args) {
     const schema = zod_1.z.object({
         query: zod_1.z.string().min(1),
-        source: zod_1.z.enum(['auto', 'kapa', 'llms-txt']).default('auto'),
+        source: zod_1.z.enum(['auto', 'kapa_ai', 'llms_txt']).default('auto'),
     });
     const parsed = schema.safeParse(args);
     if (!parsed.success) {
@@ -2258,96 +2280,151 @@ async function handleSearchExternalDocs(args) {
         };
     }
     const { query, source } = parsed.data;
-    const results = [];
-    if (source === 'auto' || source === 'kapa') {
-        try {
-            const kapaResult = await searchKapaAi(query);
-            if (kapaResult) {
-                results.push(`## Kapa.ai Results\n\n${kapaResult}`);
-            }
+    const orchestrator = (0, docs_fallback_service_1.getDocsFallbackService)();
+    try {
+        let result = null;
+        if (source === 'kapa_ai') {
+            result = await orchestrator.searchKapaOnly(query);
         }
-        catch (error) {
-            logger_1.logger.debug('Kapa.ai search failed, falling back', { query, error: error instanceof Error ? error.message : 'unknown' });
-            if (source === 'kapa') {
-                return {
-                    success: false,
-                    error: `Kapa.ai search failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
-                };
-            }
+        else if (source === 'llms_txt') {
+            result = await orchestrator.searchLlmsTxtOnly(query);
         }
-    }
-    if ((source === 'auto' && results.length === 0) || source === 'llms-txt') {
-        try {
-            const llmsResult = await searchLlmsTxt(query);
-            if (llmsResult) {
-                results.push(`## llms.txt Results\n\n${llmsResult}`);
-            }
+        else {
+            result = await orchestrator.search(query);
         }
-        catch (error) {
-            logger_1.logger.debug('llms.txt search failed', { query, error: error instanceof Error ? error.message : 'unknown' });
-            if (source === 'llms-txt') {
-                return {
-                    success: false,
-                    error: `llms.txt search failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
-                };
-            }
+        if (!result) {
+            const searchUrl = `https://docs.n8n.io/search/?q=${encodeURIComponent(query)}`;
+            return {
+                success: true,
+                message: `No results found. Search n8n documentation directly: ${searchUrl}`,
+            };
         }
-    }
-    if (results.length === 0) {
-        const searchUrl = `https://docs.n8n.io/search/?q=${encodeURIComponent(query)}`;
+        const sourceLabel = result.source === 'kapa_ai' ? 'Kapa.ai' : result.source === 'llms_txt' ? 'llms.txt' : 'n8n Docs';
+        let response = `## ${sourceLabel} Search Results\n\n${result.content}`;
+        if (result.confidence !== undefined) {
+            response = `## ${sourceLabel} Search Results (Confidence: ${Math.round(result.confidence * 100)}%)\n\n${result.content}`;
+        }
+        response += `\n\n---\n\n*Source: ${sourceLabel} | Time: ${result.elapsedMs}ms*`;
+        response += `\n\nFor more details, visit: https://docs.n8n.io/search/?q=${encodeURIComponent(query)}`;
         return {
             success: true,
-            message: `No results found in external sources. Search n8n documentation directly: ${searchUrl}`,
+            message: response,
         };
     }
-    return {
-        success: true,
-        message: results.join('\n\n---\n\n') + `\n\n---\n\nFor more details, visit: https://docs.n8n.io/search/?q=${encodeURIComponent(query)}`,
-    };
-}
-async function searchKapaAi(query) {
-    const searchUrl = `https://n8n.mcp.kapa.ai/`;
-    return `To search Kapa.ai MCP for "${query}":\n1. Connect to Kapa.ai MCP server at ${searchUrl}\n2. Use the search_n8n_knowledge_sources tool with query: "${query}"\n\nKapa.ai provides semantic search across official n8n documentation.`;
-}
-async function searchLlmsTxt(query) {
-    try {
-        const response = await fetch('https://docs.n8n.io/llms.txt', {
-            method: 'GET',
-            signal: AbortSignal.timeout(10000),
-        });
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}`);
-        }
-        const content = await response.text();
-        const lowerQuery = query.toLowerCase();
-        const lines = content.split('\n');
-        const matches = [];
-        let inRelevantSection = false;
-        for (const line of lines) {
-            if (line.startsWith('#')) {
-                if (inRelevantSection && matches.length < 500) {
-                    inRelevantSection = false;
-                }
-                if (line.toLowerCase().includes(lowerQuery)) {
-                    inRelevantSection = true;
-                    matches.push(line);
-                }
-            }
-            else if (inRelevantSection && line.trim() && matches.length < 500) {
-                matches.push(line);
-            }
-        }
-        if (matches.length === 0) {
-            const preview = lines.slice(0, 200).filter(l => l.trim()).join('\n');
-            if (preview.toLowerCase().includes(lowerQuery)) {
-                return preview.slice(0, 3000);
-            }
-            return null;
-        }
-        return matches.join('\n').slice(0, 4000);
+    catch (error) {
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        logger_1.logger.debug('handleSearchExternalDocs failed', { query: query.slice(0, 100), error: message });
+        const searchUrl = `https://docs.n8n.io/search/?q=${encodeURIComponent(query)}`;
+        return {
+            success: false,
+            error: `External docs search failed: ${message}. Search directly: ${searchUrl}`,
+        };
     }
-    catch {
-        return null;
+}
+async function handleSearchLlmsTxt(args) {
+    const schema = zod_1.z.object({
+        query: zod_1.z.string().min(1),
+        maxResults: zod_1.z.number().min(1).max(20).default(5),
+    });
+    const parsed = schema.safeParse(args);
+    if (!parsed.success) {
+        return {
+            success: false,
+            error: `Invalid input: ${parsed.error.message}`,
+        };
+    }
+    const { query, maxResults } = parsed.data;
+    try {
+        const service = (0, llms_txt_service_1.getLlmsTxtService)();
+        const results = await service.search(query, maxResults);
+        if (results.length === 0) {
+            return {
+                success: true,
+                message: `No results found in llms.txt for "${query}". Try rephrasing your query or search n8n documentation directly at https://docs.n8n.io/search/?q=${encodeURIComponent(query)}`,
+            };
+        }
+        const formattedResults = results.map((result, index) => {
+            const { chunk, score } = result;
+            let output = `**${index + 1}. ${chunk.title}**`;
+            if (chunk.section) {
+                output += ` (Section: ${chunk.section})`;
+            }
+            output += ` — Relevance: ${score}\n`;
+            if (chunk.url) {
+                output += `🔗 ${chunk.url}\n`;
+            }
+            if (chunk.content) {
+                const preview = chunk.content.length > 500
+                    ? chunk.content.slice(0, 500) + '...'
+                    : chunk.content;
+                output += `${preview}`;
+            }
+            return output;
+        });
+        const response = `## llms.txt Search Results for "${query}"\n\n${formattedResults.join('\n\n---\n\n')}`;
+        return {
+            success: true,
+            message: response + `\n\n---\n\nFor more details, visit: https://docs.n8n.io/search/?q=${encodeURIComponent(query)}`,
+        };
+    }
+    catch (error) {
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        logger_1.logger.debug('handleSearchLlmsTxt failed', { query, error: message });
+        return {
+            success: false,
+            error: `llms.txt search failed: ${message}. Try searching directly at https://docs.n8n.io/search/?q=${encodeURIComponent(query)}`,
+        };
+    }
+}
+async function handleSearchKapaAi(args) {
+    const schema = zod_1.z.object({
+        query: zod_1.z.string().min(1),
+        includeSources: zod_1.z.boolean().default(true),
+    });
+    const parsed = schema.safeParse(args);
+    if (!parsed.success) {
+        return {
+            success: false,
+            error: `Invalid input: ${parsed.error.message}`,
+        };
+    }
+    const { query, includeSources } = parsed.data;
+    try {
+        const client = (0, kapa_ai_client_1.getKapaAiClient)();
+        const result = await client.search(query);
+        if (!result.success) {
+            return {
+                success: false,
+                error: result.error ?? 'Kapa.ai search returned no results',
+            };
+        }
+        if (result.results.length === 0) {
+            return {
+                success: true,
+                message: `No results found in Kapa.ai for "${query}". Try rephrasing your question or check the n8n documentation directly at https://docs.n8n.io/search/?q=${encodeURIComponent(query)}`,
+            };
+        }
+        const firstResult = result.results[0];
+        let response = `## Kapa.ai Search Results\n\n${firstResult.answer}`;
+        if (includeSources && firstResult.source) {
+            response += `\n\n**Source:** ${firstResult.source}`;
+        }
+        if (firstResult.confidence !== undefined) {
+            response += `\n**Confidence:** ${Math.round(firstResult.confidence * 100)}%`;
+        }
+        response += `\n\n---\n\nFor more details, visit: https://docs.n8n.io/search/?q=${encodeURIComponent(query)}`;
+        return {
+            success: true,
+            message: response,
+        };
+    }
+    catch (error) {
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        logger_1.logger.debug('handleSearchKapaAi failed', { query, error: message });
+        return {
+            success: false,
+            error: `Kapa.ai search failed: ${message}`,
+        };
     }
 }
 async function handleSuggestNodes(args) {
@@ -2441,5 +2518,578 @@ async function handleSuggestNodes(args) {
         success: true,
         message: `# Suggested Nodes for: "${task}"\n\n${formattedSuggestions}\n\n---\n\n**Next steps:**\n1. Use \`get_node({nodeType: "<type>", detail: "standard"})\` to see required properties\n2. Use \`validate_node({nodeType: "<type>", config: {...}})\` to validate configuration\n3. Use \`search_nodes({query: "<keyword>"})\` for more options`,
     };
+}
+const listTagsSchema = zod_1.z.object({
+    limit: zod_1.z.number().min(1).max(1000).optional(),
+    cursor: zod_1.z.string().optional(),
+});
+const createTagSchema = zod_1.z.object({
+    name: zod_1.z.string().min(1).max(255),
+});
+const listVariablesSchema = zod_1.z.object({});
+const createVariableSchema = zod_1.z.object({
+    key: zod_1.z.string().min(1).max(255),
+    value: zod_1.z.string().min(1),
+});
+const updateVariableSchema = zod_1.z.object({
+    id: zod_1.z.string().min(1),
+    value: zod_1.z.string(),
+});
+const searchWorkflowsSchema = zod_1.z.object({
+    query: zod_1.z.string().min(1),
+    active: zod_1.z.boolean().optional(),
+    limit: zod_1.z.number().min(1).max(1000).optional(),
+});
+const duplicateWorkflowSchema = zod_1.z.object({
+    id: zod_1.z.string().min(1),
+    newName: zod_1.z.string().min(1).max(255).optional(),
+});
+const exportWorkflowSchema = zod_1.z.object({
+    id: zod_1.z.string().min(1),
+});
+const getWorkflowConnectionsSchema = zod_1.z.object({
+    id: zod_1.z.string().min(1),
+});
+const batchCreateWorkflowsSchema = zod_1.z.object({
+    workflows: zod_1.z
+        .array(zod_1.z.object({
+        name: zod_1.z.string().min(1),
+        nodes: zod_1.z.array(zod_1.z.any()).optional(),
+        connections: zod_1.z.record(zod_1.z.any()).optional(),
+    }))
+        .min(1)
+        .max(50),
+});
+async function handleListTags(args, context) {
+    try {
+        const client = ensureApiConfigured(context);
+        const parsed = listTagsSchema.safeParse(args);
+        if (!parsed.success) {
+            return { success: false, error: `Invalid input: ${parsed.error.message}` };
+        }
+        const { limit, cursor } = parsed.data;
+        const tags = await client.listTags({ limit, cursor });
+        return {
+            success: true,
+            data: tags,
+            message: `Successfully retrieved ${tags.data.length} tags.`,
+        };
+    }
+    catch (error) {
+        return {
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error occurred',
+        };
+    }
+}
+async function handleCreateTag(args, context) {
+    try {
+        const client = ensureApiConfigured(context);
+        const parsed = createTagSchema.safeParse(args);
+        if (!parsed.success) {
+            return { success: false, error: `Invalid input: ${parsed.error.message}` };
+        }
+        const { name } = parsed.data;
+        const tag = await client.createTag({ name });
+        return {
+            success: true,
+            data: tag,
+            message: `Successfully created tag "${tag.name}" with ID: ${tag.id}.`,
+        };
+    }
+    catch (error) {
+        return {
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error occurred',
+        };
+    }
+}
+async function handleListVariables(args, context) {
+    try {
+        const client = ensureApiConfigured(context);
+        const parsed = listVariablesSchema.safeParse(args);
+        if (!parsed.success) {
+            return { success: false, error: `Invalid input: ${parsed.error.message}` };
+        }
+        const variables = await client.getVariables();
+        if (!Array.isArray(variables) || variables.length === 0) {
+            return {
+                success: true,
+                data: { variables: [], count: 0 },
+                message: 'No variables found. Variables API may not be available in this n8n version.',
+            };
+        }
+        const sanitized = variables.map((v) => ({ id: v.id, key: v.key }));
+        return {
+            success: true,
+            data: { variables: sanitized, count: sanitized.length },
+            message: `Successfully retrieved ${sanitized.length} variables.`,
+        };
+    }
+    catch (error) {
+        return {
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error occurred',
+        };
+    }
+}
+async function handleCreateVariable(args, context) {
+    try {
+        const client = ensureApiConfigured(context);
+        const parsed = createVariableSchema.safeParse(args);
+        if (!parsed.success) {
+            return { success: false, error: `Invalid input: ${parsed.error.message}` };
+        }
+        const { key, value } = parsed.data;
+        const variable = await client.createVariable({ key, value });
+        return {
+            success: true,
+            data: { id: variable.id, key: variable.key },
+            message: `Successfully created variable "${variable.key}" with ID: ${variable.id}.`,
+        };
+    }
+    catch (error) {
+        return {
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error occurred',
+        };
+    }
+}
+async function handleUpdateVariable(args, context) {
+    try {
+        const client = ensureApiConfigured(context);
+        const parsed = updateVariableSchema.safeParse(args);
+        if (!parsed.success) {
+            return { success: false, error: `Invalid input: ${parsed.error.message}` };
+        }
+        const { id, value } = parsed.data;
+        const variable = await client.updateVariable(id, { value });
+        return {
+            success: true,
+            data: { id: variable.id, key: variable.key },
+            message: `Successfully updated variable "${variable.key}" (ID: ${variable.id}).`,
+        };
+    }
+    catch (error) {
+        return {
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error occurred',
+        };
+    }
+}
+async function handleSearchWorkflows(args, context) {
+    try {
+        const client = ensureApiConfigured(context);
+        const parsed = searchWorkflowsSchema.safeParse(args);
+        if (!parsed.success) {
+            return { success: false, error: `Invalid input: ${parsed.error.message}` };
+        }
+        const { query, active, limit } = parsed.data;
+        const fetchLimit = limit || 100;
+        const workflows = await client.listWorkflows({ active, limit: fetchLimit });
+        const queryLower = query.toLowerCase();
+        const filtered = workflows.data.filter((wf) => {
+            const nameMatch = wf.name?.toLowerCase().includes(queryLower);
+            const tagMatch = wf.tags?.some((t) => t.name?.toLowerCase().includes(queryLower));
+            return nameMatch || tagMatch;
+        });
+        return {
+            success: true,
+            data: { workflows: filtered, count: filtered.length, query, note: `Searched ${workflows.data.length} workflows (limit: ${fetchLimit}). Increase limit parameter for more results.` },
+            message: `Found ${filtered.length} workflow(s) matching "${query}".`,
+        };
+    }
+    catch (error) {
+        return {
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error occurred',
+        };
+    }
+}
+async function handleDuplicateWorkflow(args, context) {
+    try {
+        const client = ensureApiConfigured(context);
+        const parsed = duplicateWorkflowSchema.safeParse(args);
+        if (!parsed.success) {
+            return { success: false, error: `Invalid input: ${parsed.error.message}` };
+        }
+        const { id, newName } = parsed.data;
+        const original = await client.getWorkflow(id);
+        const dupName = newName || `${original.name} (Copy)`;
+        const duplicated = await client.createWorkflow({
+            name: dupName,
+            nodes: original.nodes,
+            connections: original.connections,
+            settings: original.settings,
+            tags: original.tags,
+        });
+        return {
+            success: true,
+            data: { id: duplicated.id, name: duplicated.name, active: duplicated.active },
+            message: `Successfully duplicated workflow "${original.name}" → "${duplicated.name}" (ID: ${duplicated.id}).`,
+        };
+    }
+    catch (error) {
+        return {
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error occurred',
+        };
+    }
+}
+async function handleExportWorkflow(args, context) {
+    try {
+        const client = ensureApiConfigured(context);
+        const parsed = exportWorkflowSchema.safeParse(args);
+        if (!parsed.success) {
+            return { success: false, error: `Invalid input: ${parsed.error.message}` };
+        }
+        const { id } = parsed.data;
+        const workflow = await client.getWorkflow(id);
+        return {
+            success: true,
+            data: workflow,
+            message: `Exported workflow "${workflow.name}" (ID: ${workflow.id}). ⚠️ This export may contain embedded credentials in node configurations.`,
+        };
+    }
+    catch (error) {
+        return {
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error occurred',
+        };
+    }
+}
+async function handleGetWorkflowConnections(args, context) {
+    try {
+        const client = ensureApiConfigured(context);
+        const parsed = getWorkflowConnectionsSchema.safeParse(args);
+        if (!parsed.success) {
+            return { success: false, error: `Invalid input: ${parsed.error.message}` };
+        }
+        const { id } = parsed.data;
+        const workflow = await client.getWorkflow(id);
+        const nodes = workflow.nodes;
+        const connections = workflow.connections;
+        const edges = [];
+        for (const [sourceNode, outputPorts] of Object.entries(connections)) {
+            for (const outputConnections of Object.values(outputPorts)) {
+                for (const connectionGroup of outputConnections) {
+                    for (const conn of connectionGroup) {
+                        if (conn?.node) {
+                            edges.push({ from: sourceNode, to: conn.node, type: conn.type });
+                        }
+                    }
+                }
+            }
+        }
+        return {
+            success: true,
+            data: {
+                workflowId: workflow.id,
+                workflowName: workflow.name,
+                nodes: nodes.map((n) => ({ id: n.id, name: n.name, type: n.type })),
+                edges,
+                nodeCount: nodes.length,
+                edgeCount: edges.length,
+            },
+            message: `Workflow "${workflow.name}" has ${nodes.length} node(s) and ${edges.length} connection(s).`,
+        };
+    }
+    catch (error) {
+        return {
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error occurred',
+        };
+    }
+}
+async function handleBatchCreateWorkflows(args, context) {
+    try {
+        const client = ensureApiConfigured(context);
+        const parsed = batchCreateWorkflowsSchema.safeParse(args);
+        if (!parsed.success) {
+            return { success: false, error: `Invalid input: ${parsed.error.message}` };
+        }
+        const { workflows } = parsed.data;
+        const created = [];
+        const failed = [];
+        for (const wf of workflows) {
+            try {
+                const result = await client.createWorkflow({
+                    name: wf.name,
+                    nodes: wf.nodes,
+                    connections: wf.connections,
+                });
+                if (result.id) {
+                    created.push({ id: result.id, name: result.name });
+                }
+                else {
+                    failed.push({ name: wf.name, error: 'Workflow creation returned no ID' });
+                }
+            }
+            catch (err) {
+                failed.push({ name: wf.name, error: err instanceof Error ? err.message : String(err) });
+            }
+        }
+        return {
+            success: true,
+            data: { created, failed, totalRequested: workflows.length, totalCreated: created.length, totalFailed: failed.length },
+            message: `Batch complete: ${created.length} created, ${failed.length} failed.`,
+        };
+    }
+    catch (error) {
+        return {
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error occurred',
+        };
+    }
+}
+const executeWorkflowSchema = zod_1.z.object({
+    workflowId: zod_1.z.string().min(1, 'workflowId is required'),
+    inputData: zod_1.z.record(zod_1.z.unknown()).optional(),
+    mode: zod_1.z.enum(['run', 'error']).optional().default('run'),
+});
+async function handleExecuteWorkflow(args, context) {
+    const parsed = executeWorkflowSchema.safeParse(args);
+    if (!parsed.success) {
+        return { success: false, error: `Invalid input: ${parsed.error.message}` };
+    }
+    const { workflowId, inputData, mode } = parsed.data;
+    const client = ensureApiConfigured(context);
+    try {
+        const result = await client.executeWorkflow(workflowId, {
+            data: inputData,
+            mode,
+        });
+        return {
+            success: true,
+            data: {
+                executionId: result.executionId,
+                status: result.status,
+                workflowId,
+            },
+            message: `Workflow execution started successfully. Execution ID: ${result.executionId}`,
+        };
+    }
+    catch (error) {
+        return {
+            success: false,
+            error: `Failed to execute workflow: ${error instanceof Error ? error.message : String(error)}`,
+        };
+    }
+}
+const retryExecutionSchema = zod_1.z.object({
+    executionId: zod_1.z.string().min(1, 'executionId is required'),
+});
+async function handleRetryExecution(args, context) {
+    const parsed = retryExecutionSchema.safeParse(args);
+    if (!parsed.success) {
+        return { success: false, error: `Invalid input: ${parsed.error.message}` };
+    }
+    const { executionId } = parsed.data;
+    const client = ensureApiConfigured(context);
+    try {
+        const result = await client.retryExecution(executionId);
+        return {
+            success: true,
+            executionId: result.newExecutionId,
+            data: {
+                newExecutionId: result.newExecutionId,
+                status: result.status,
+                originalExecutionId: executionId,
+            },
+            message: `Execution retried successfully. New execution ID: ${result.newExecutionId}`,
+        };
+    }
+    catch (error) {
+        return {
+            success: false,
+            error: `Failed to retry execution: ${error instanceof Error ? error.message : String(error)}`,
+        };
+    }
+}
+const listCredentialsSchema = zod_1.z.object({
+    type: zod_1.z.string().optional(),
+    limit: zod_1.z.number().min(1).max(1000).optional().default(100),
+});
+async function handleListCredentials(args, context) {
+    const parsed = listCredentialsSchema.safeParse(args);
+    if (!parsed.success) {
+        return { success: false, error: `Invalid input: ${parsed.error.message}` };
+    }
+    const { type, limit } = parsed.data;
+    const client = ensureApiConfigured(context);
+    try {
+        const response = await client.listCredentials({ limit, filter: type ? { type } : undefined });
+        const credentials = response.data || [];
+        const sanitizedCredentials = credentials.map((cred) => ({
+            id: cred.id,
+            name: cred.name,
+            type: cred.type,
+            createdAt: cred.createdAt,
+            updatedAt: cred.updatedAt,
+        }));
+        return {
+            success: true,
+            data: {
+                credentials: sanitizedCredentials,
+                total: sanitizedCredentials.length,
+            },
+            message: `Successfully retrieved ${sanitizedCredentials.length} credential(s). Note: Secret values are not returned for security.`,
+        };
+    }
+    catch (error) {
+        return {
+            success: false,
+            error: `Failed to list credentials: ${error instanceof Error ? error.message : String(error)}`,
+        };
+    }
+}
+const getCredentialSchema = zod_1.z.object({
+    id: zod_1.z.string().min(1, 'id is required'),
+});
+async function handleGetCredential(args, context) {
+    const parsed = getCredentialSchema.safeParse(args);
+    if (!parsed.success) {
+        return { success: false, error: `Invalid input: ${parsed.error.message}` };
+    }
+    const { id } = parsed.data;
+    const client = ensureApiConfigured(context);
+    try {
+        logger_1.logger.error(`[AUDIT] Credential accessed: id=${id}`, {
+            action: 'credential_read',
+            credentialId: id,
+            timestamp: new Date().toISOString(),
+        });
+        const credential = await client.getCredential(id);
+        const sanitizedCredential = {
+            id: credential.id,
+            name: credential.name,
+            type: credential.type,
+            createdAt: credential.createdAt,
+            updatedAt: credential.updatedAt,
+        };
+        return {
+            success: true,
+            data: sanitizedCredential,
+            message: `Credential retrieved successfully. SECURITY: Secret values are not returned for security.`,
+        };
+    }
+    catch (error) {
+        return {
+            success: false,
+            error: `Failed to get credential: ${error instanceof Error ? error.message : String(error)}`,
+        };
+    }
+}
+const createCredentialSchema = zod_1.z.object({
+    name: zod_1.z.string().min(1, 'name is required'),
+    type: zod_1.z.string().min(1, 'type is required'),
+    data: zod_1.z.record(zod_1.z.unknown()),
+});
+async function handleCreateCredential(args, context) {
+    const parsed = createCredentialSchema.safeParse(args);
+    if (!parsed.success) {
+        return { success: false, error: `Invalid input: ${parsed.error.message}` };
+    }
+    const { name, type, data } = parsed.data;
+    const client = ensureApiConfigured(context);
+    try {
+        const credential = await client.createCredential({
+            name,
+            type,
+            data,
+        });
+        return {
+            success: true,
+            data: {
+                id: credential.id,
+                name: credential.name,
+                type: credential.type,
+                createdAt: credential.createdAt,
+            },
+            message: `Credential "${name}" created successfully. Secret values are stored securely and not returned.`,
+        };
+    }
+    catch (error) {
+        return {
+            success: false,
+            error: `Failed to create credential: ${error instanceof Error ? error.message : String(error)}`,
+        };
+    }
+}
+const updateCredentialSchema = zod_1.z.object({
+    id: zod_1.z.string().min(1, 'id is required'),
+    name: zod_1.z.string().min(1).optional(),
+    data: zod_1.z.record(zod_1.z.unknown()).optional(),
+});
+async function handleUpdateCredential(args, context) {
+    const parsed = updateCredentialSchema.safeParse(args);
+    if (!parsed.success) {
+        return { success: false, error: `Invalid input: ${parsed.error.message}` };
+    }
+    const { id, name, data } = parsed.data;
+    const client = ensureApiConfigured(context);
+    try {
+        const updateData = {};
+        if (name)
+            updateData.name = name;
+        if (data)
+            updateData.data = data;
+        const credential = await client.updateCredential(id, updateData);
+        return {
+            success: true,
+            data: {
+                id: credential.id,
+                name: credential.name,
+                type: credential.type,
+                updatedAt: credential.updatedAt,
+            },
+            message: `Credential "${credential.name}" updated successfully. Secret values are stored securely and not returned.`,
+        };
+    }
+    catch (error) {
+        return {
+            success: false,
+            error: `Failed to update credential: ${error instanceof Error ? error.message : String(error)}`,
+        };
+    }
+}
+const deleteCredentialSchema = zod_1.z.object({
+    id: zod_1.z.string().min(1, 'id is required'),
+});
+async function handleDeleteCredential(args, context) {
+    const parsed = deleteCredentialSchema.safeParse(args);
+    if (!parsed.success) {
+        return { success: false, error: `Invalid input: ${parsed.error.message}` };
+    }
+    const { id } = parsed.data;
+    const client = ensureApiConfigured(context);
+    try {
+        const workflows = await client.listWorkflows({ limit: 1000 });
+        const usedByWorkflows = (workflows.data || []).filter((wf) => {
+            return wf.nodes?.some((node) => node.credentials && Object.values(node.credentials).some((cred) => cred?.id === id));
+        });
+        if (usedByWorkflows.length > 0) {
+            return {
+                success: false,
+                error: `Credential is in use by ${usedByWorkflows.length} workflow(s). Deactivate or update these workflows before deleting.`,
+                data: {
+                    credentialId: id,
+                    usedBy: usedByWorkflows.slice(0, 10).map((wf) => ({ id: wf.id, name: wf.name })),
+                },
+            };
+        }
+        await client.deleteCredential(id);
+        return {
+            success: true,
+            data: { id },
+            message: `Credential ${id} deleted successfully.`,
+        };
+    }
+    catch (error) {
+        return {
+            success: false,
+            error: `Failed to delete credential: ${error instanceof Error ? error.message : String(error)}`,
+        };
+    }
 }
 //# sourceMappingURL=handlers-n8n-manager.js.map

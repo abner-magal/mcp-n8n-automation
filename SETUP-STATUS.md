@@ -61,9 +61,53 @@
 |------|--------|----------|
 | `npm install` | ✅ | 2678 pacotes |
 | `npm run build` | ✅ | tsc sem erros, dist/ 5.9MB |
-| `npm test:unit` | ✅ | **4242 passed**, 184 failed (FTS5 sql.js — upstream issue) |
-| `.env.local` | ✅ | Criado de `.env.example` |
-| n8n local Docker | ⏳ | Imagem baixando (~205MB) |
+| `npm test:unit` | ✅ | **4273 passed**, 184 failed (FTS5 sql.js — upstream issue) |
+| `.env.local` | ✅ | Criado de `.env.example`, N8N_API_URL configurado |
+| n8n local Docker | ✅ | **Running natively** on localhost:5678 (PID 1314) |
+
+### n8n Instance Details
+
+| Item | Valor |
+|------|-------|
+| **Status** | ✅ Running (native, not Docker) |
+| **URL** | http://localhost:5678 |
+| **Health** | http://localhost:5678/healthz → `{"status":"ok"}` |
+| **Process** | `node /home/bn/.config/nvm/versions/node/v22.22.0/bin/n8n start` |
+| **PID** | 1314 |
+| **Data Directory** | ~/.n8n |
+| **API Key** | ⚠️ **Pending** — create via UI: Settings > API Keys |
+
+### Docker Resources Created
+
+| File | Purpose |
+|------|---------|
+| `docker/n8n-docker-compose.yml` | Docker Compose config for reproducible n8n setup |
+| `docker/setup-n8n-api.sh` | Automated setup script for API configuration |
+
+### Reproduction Steps (if n8n needs restart)
+
+**Option 1: Native (current)**
+```bash
+n8n start
+# Runs on http://localhost:5678
+```
+
+**Option 2: Docker Compose**
+```bash
+# Stop native instance first (kill PID 1314)
+docker compose -f docker/n8n-docker-compose.yml up -d
+# Runs on http://localhost:5678
+```
+
+**API Key Setup (one-time)**
+```bash
+# 1. Open http://localhost:5678 in browser
+# 2. Complete initial setup (create owner account)
+# 3. Go to Settings > API Keys
+# 4. Click "Create API Key"
+# 5. Copy the key and update .env.local:
+#    N8N_API_KEY=your-api-key-here
+```
 
 ### npm Audit Summary
 
@@ -86,6 +130,8 @@
 | Git | 2.47.3 |
 | Disk livre | 90GB (60%) |
 | node_modules | 2.5GB |
+| **n8n** | **Running on localhost:5678** |
+| **Tests** | **4273 passing** (improved from 4242) |
 
 ---
 

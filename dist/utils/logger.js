@@ -1,6 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.logger = exports.Logger = exports.LogLevel = void 0;
+exports.sanitizeRequestData = sanitizeRequestData;
 var LogLevel;
 (function (LogLevel) {
     LogLevel[LogLevel["ERROR"] = 0] = "ERROR";
@@ -98,4 +99,13 @@ exports.Logger = Logger;
 exports.logger = Logger.getInstance({
     level: Logger.parseLogLevel(process.env.LOG_LEVEL || 'info'),
 });
+function sanitizeRequestData(url, data) {
+    if (!url || !data || typeof data !== 'object')
+        return data;
+    if (url.includes('/credentials') && data.data) {
+        const d = data;
+        return { ...d, data: '[REDACTED - credential secrets]' };
+    }
+    return data;
+}
 //# sourceMappingURL=logger.js.map

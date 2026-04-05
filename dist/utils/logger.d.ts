@@ -30,4 +30,5 @@ export declare class Logger {
     static parseLogLevel(level: string): LogLevel;
 }
 export declare const logger: Logger;
+export declare function sanitizeRequestData(url: string | undefined, data: unknown): unknown;
 //# sourceMappingURL=logger.d.ts.map

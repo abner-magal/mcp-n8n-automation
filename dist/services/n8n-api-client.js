@@ -63,7 +63,7 @@ class N8nApiClient {
         this.client.interceptors.request.use((config) => {
             logger_1.logger.debug(`n8n API Request: ${config.method?.toUpperCase()} ${config.url}`, {
                 params: config.params,
-                data: config.data,
+                data: (0, logger_1.sanitizeRequestData)(config.url, config.data),
             });
             return config;
         }, (error) => {
@@ -252,6 +252,33 @@ class N8nApiClient {
     async deleteExecution(id) {
         try {
             await this.client.delete(`/executions/${id}`);
+        }
+        catch (error) {
+            throw (0, n8n_errors_1.handleN8nApiError)(error);
+        }
+    }
+    async executeWorkflow(workflowId, params = {}) {
+        try {
+            const response = await this.client.post(`/workflows/${workflowId}/run`, {
+                data: params.data,
+                mode: params.mode || 'run',
+            });
+            return {
+                executionId: response.data.executionId || response.data.id,
+                status: response.data.status || 'running',
+            };
+        }
+        catch (error) {
+            throw (0, n8n_errors_1.handleN8nApiError)(error);
+        }
+    }
+    async retryExecution(executionId) {
+        try {
+            const response = await this.client.post(`/executions/${executionId}/retry`);
+            return {
+                newExecutionId: response.data.executionId || response.data.id,
+                status: response.data.status || 'running',
+            };
         }
         catch (error) {
             throw (0, n8n_errors_1.handleN8nApiError)(error);

@@ -5,7 +5,7 @@ import { logger } from '../utils/logger';
 // n8n API configuration schema
 const n8nApiConfigSchema = z.object({
   N8N_API_URL: z.string().url().optional(),
-  N8N_API_KEY: z.string().min(1).optional(),
+  N8N_API_KEY: z.string().optional(), // Optional for local development without auth
   N8N_API_TIMEOUT: z.coerce.number().positive().default(30000),
   N8N_API_MAX_RETRIES: z.coerce.number().positive().default(3),
 });
@@ -28,15 +28,15 @@ export function getN8nApiConfig() {
   }
   
   const config = result.data;
-  
-  // Check if both URL and API key are provided
-  if (!config.N8N_API_URL || !config.N8N_API_KEY) {
+
+  // API URL is required, API key is optional (for local dev without auth)
+  if (!config.N8N_API_URL) {
     return null;
   }
-  
+
   return {
     baseUrl: config.N8N_API_URL,
-    apiKey: config.N8N_API_KEY,
+    apiKey: config.N8N_API_KEY || '', // Empty string for no auth
     timeout: config.N8N_API_TIMEOUT,
     maxRetries: config.N8N_API_MAX_RETRIES,
   };
@@ -58,13 +58,13 @@ export function getN8nApiConfigFromContext(context: {
   n8nApiTimeout?: number;
   n8nApiMaxRetries?: number;
 }): N8nApiConfig | null {
-  if (!context.n8nApiUrl || !context.n8nApiKey) {
+  if (!context.n8nApiUrl) {
     return null;
   }
 
   return {
     baseUrl: context.n8nApiUrl,
-    apiKey: context.n8nApiKey,
+    apiKey: context.n8nApiKey ?? '',
     timeout: context.n8nApiTimeout ?? 30000,
     maxRetries: context.n8nApiMaxRetries ?? 3,
   };

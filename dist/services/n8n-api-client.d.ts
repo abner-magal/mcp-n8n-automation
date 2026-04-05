@@ -27,6 +27,17 @@ export declare class N8nApiClient {
     getExecution(id: string, includeData?: boolean): Promise<Execution>;
     listExecutions(params?: ExecutionListParams): Promise<ExecutionListResponse>;
     deleteExecution(id: string): Promise<void>;
+    executeWorkflow(workflowId: string, params?: {
+        data?: Record<string, unknown>;
+        mode?: string;
+    }): Promise<{
+        executionId: string;
+        status: string;
+    }>;
+    retryExecution(executionId: string): Promise<{
+        newExecutionId: string;
+        status: string;
+    }>;
     triggerWebhook(request: WebhookRequest): Promise<any>;
     listCredentials(params?: CredentialListParams): Promise<CredentialListResponse>;
     getCredential(id: string): Promise<Credential>;

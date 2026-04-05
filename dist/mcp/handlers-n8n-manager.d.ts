@@ -38,5 +38,24 @@ export declare function handleUpdateRows(args: unknown, context?: InstanceContex
 export declare function handleUpsertRows(args: unknown, context?: InstanceContext): Promise<McpToolResponse>;
 export declare function handleDeleteRows(args: unknown, context?: InstanceContext): Promise<McpToolResponse>;
 export declare function handleSearchExternalDocs(args: unknown): Promise<McpToolResponse>;
+export declare function handleSearchLlmsTxt(args: unknown): Promise<McpToolResponse>;
+export declare function handleSearchKapaAi(args: unknown): Promise<McpToolResponse>;
 export declare function handleSuggestNodes(args: unknown): Promise<McpToolResponse>;
+export declare function handleListTags(args: unknown, context?: InstanceContext): Promise<McpToolResponse>;
+export declare function handleCreateTag(args: unknown, context?: InstanceContext): Promise<McpToolResponse>;
+export declare function handleListVariables(args: unknown, context?: InstanceContext): Promise<McpToolResponse>;
+export declare function handleCreateVariable(args: unknown, context?: InstanceContext): Promise<McpToolResponse>;
+export declare function handleUpdateVariable(args: unknown, context?: InstanceContext): Promise<McpToolResponse>;
+export declare function handleSearchWorkflows(args: unknown, context?: InstanceContext): Promise<McpToolResponse>;
+export declare function handleDuplicateWorkflow(args: unknown, context?: InstanceContext): Promise<McpToolResponse>;
+export declare function handleExportWorkflow(args: unknown, context?: InstanceContext): Promise<McpToolResponse>;
+export declare function handleGetWorkflowConnections(args: unknown, context?: InstanceContext): Promise<McpToolResponse>;
+export declare function handleBatchCreateWorkflows(args: unknown, context?: InstanceContext): Promise<McpToolResponse>;
+export declare function handleExecuteWorkflow(args: unknown, context?: InstanceContext): Promise<McpToolResponse>;
+export declare function handleRetryExecution(args: unknown, context?: InstanceContext): Promise<McpToolResponse>;
+export declare function handleListCredentials(args: unknown, context?: InstanceContext): Promise<McpToolResponse>;
+export declare function handleGetCredential(args: unknown, context?: InstanceContext): Promise<McpToolResponse>;
+export declare function handleCreateCredential(args: unknown, context?: InstanceContext): Promise<McpToolResponse>;
+export declare function handleUpdateCredential(args: unknown, context?: InstanceContext): Promise<McpToolResponse>;
+export declare function handleDeleteCredential(args: unknown, context?: InstanceContext): Promise<McpToolResponse>;
 //# sourceMappingURL=handlers-n8n-manager.d.ts.map

@@ -1,0 +1,38 @@
+# n8n Docker Compose Configuration
+# For integration testing with mcp-n8n-automation
+#
+# Usage:
+#   docker compose -f docker/n8n-docker-compose.yml up -d
+#   docker compose -f docker/n8n-docker-compose.yml down
+#
+# Access: http://localhost:5678
+# Health check: http://localhost:5678/healthz
+
+services:
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: n8n
+    restart: unless-stopped
+    ports:
+      - "5678:5678"
+    volumes:
+      - n8n_data:/home/node/.n8n
+    environment:
+      - GENERIC_TIMEZONE=America/Sao_Paulo
+      - TZ=America/Sao_Paulo
+      # Development mode - disable auth for local testing
+      # Remove these for production
+      - N8N_SECURE_COOKIE=false
+      - N8N_PROTOCOL=http
+      # Optional: Set a fixed encryption key for consistency
+      # - N8N_ENCRYPTION_KEY=your-encryption-key-here
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5678/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+volumes:
+  n8n_data:
+    driver: local

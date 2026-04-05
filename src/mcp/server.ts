@@ -19,6 +19,7 @@ import { makeToolsN8nFriendly } from './tools-n8n-friendly';
 import { docsFallbackTools } from './tools-docs-fallback';
 import { credentialTools } from './tools-credentials';
 import { executionTools } from './tools-execution';
+import { n8n_create_from_prompt, n8n_suggest_nodes } from './tools-ai-workflow';
 import { getWorkflowExampleString } from './workflow-examples';
 import { logger } from '../utils/logger';
 import { NodeRepository } from '../database/node-repository';
@@ -36,6 +37,7 @@ import { WorkflowValidator } from '../services/workflow-validator';
 import { isN8nApiConfigured } from '../config/n8n-api';
 import * as n8nHandlers from './handlers-n8n-manager';
 import { handleUpdatePartialWorkflow } from './handlers-workflow-diff';
+import { handleCreateFromPrompt, handleSuggestNodes } from './handlers-ai-workflow';
 import { getToolDocumentation, getToolsOverview } from './tools-documentation';
 import { PROJECT_VERSION } from '../utils/version';
 import { getNodeTypeAlternatives, getWorkflowNodeType } from '../utils/node-utils';
@@ -611,8 +613,11 @@ export class N8NDocumentationMCPServer {
         const enabledExecutionTools = executionTools.filter(
           tool => !disabledTools.has(tool.name)
         );
-        tools.push(...enabledMgmtTools, ...enabledCredentialTools, ...enabledExecutionTools);
-        logger.debug(`Tool listing: ${tools.length} tools available (${enabledDocTools.length} documentation + ${enabledMgmtTools.length} management + ${enabledCredentialTools.length} credentials + ${enabledExecutionTools.length} execution)`, {
+        const enabledAiWorkflowTools = [n8n_create_from_prompt, n8n_suggest_nodes].filter(
+          tool => !disabledTools.has(tool.name)
+        );
+        tools.push(...enabledMgmtTools, ...enabledCredentialTools, ...enabledExecutionTools, ...enabledAiWorkflowTools);
+        logger.debug(`Tool listing: ${tools.length} tools available (${enabledDocTools.length} documentation + ${enabledMgmtTools.length} management + ${enabledCredentialTools.length} credentials + ${enabledExecutionTools.length} execution + ${enabledAiWorkflowTools.length} AI workflow)`, {
           hasEnvConfig,
           hasInstanceConfig,
           isMultiTenantEnabled,
@@ -1407,6 +1412,8 @@ export class N8NDocumentationMCPServer {
       case 'n8n_create_workflow':
         this.validateToolParams(name, args, ['name', 'nodes', 'connections']);
         return n8nHandlers.handleCreateWorkflow(args, this.instanceContext);
+      case 'n8n_create_from_prompt':
+        return handleCreateFromPrompt(args, this.instanceContext);
       case 'n8n_get_workflow': {
         this.validateToolParams(name, args, ['id']);
         const workflowMode = args.mode || 'full';
@@ -1595,9 +1602,18 @@ export class N8NDocumentationMCPServer {
         return n8nHandlers.handleSearchExternalDocs(args);
       }
 
+      case 'n8n_search_kapa_ai': {
+        this.validateToolParams(name, args, ['query']);
+        return n8nHandlers.handleSearchKapaAi(args);
+      }
+
       case 'n8n_suggest_nodes': {
-        this.validateToolParams(name, args, ['task']);
-        return n8nHandlers.handleSuggestNodes(args);
+        return handleSuggestNodes(args);
+      }
+
+      case 'n8n_search_llms_txt': {
+        this.validateToolParams(name, args, ['query']);
+        return n8nHandlers.handleSearchLlmsTxt(args);
       }
 
       default:

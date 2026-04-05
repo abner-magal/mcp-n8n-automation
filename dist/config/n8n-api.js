@@ -10,7 +10,7 @@ const zod_1 = require("zod");
 const dotenv_1 = __importDefault(require("dotenv"));
 const n8nApiConfigSchema = zod_1.z.object({
     N8N_API_URL: zod_1.z.string().url().optional(),
-    N8N_API_KEY: zod_1.z.string().min(1).optional(),
+    N8N_API_KEY: zod_1.z.string().optional(),
     N8N_API_TIMEOUT: zod_1.z.coerce.number().positive().default(30000),
     N8N_API_MAX_RETRIES: zod_1.z.coerce.number().positive().default(3),
 });
@@ -25,12 +25,12 @@ function getN8nApiConfig() {
         return null;
     }
     const config = result.data;
-    if (!config.N8N_API_URL || !config.N8N_API_KEY) {
+    if (!config.N8N_API_URL) {
         return null;
     }
     return {
         baseUrl: config.N8N_API_URL,
-        apiKey: config.N8N_API_KEY,
+        apiKey: config.N8N_API_KEY || '',
         timeout: config.N8N_API_TIMEOUT,
         maxRetries: config.N8N_API_MAX_RETRIES,
     };
@@ -40,12 +40,12 @@ function isN8nApiConfigured() {
     return config !== null;
 }
 function getN8nApiConfigFromContext(context) {
-    if (!context.n8nApiUrl || !context.n8nApiKey) {
+    if (!context.n8nApiUrl) {
         return null;
     }
     return {
         baseUrl: context.n8nApiUrl,
-        apiKey: context.n8nApiKey,
+        apiKey: context.n8nApiKey ?? '',
         timeout: context.n8nApiTimeout ?? 30000,
         maxRetries: context.n8nApiMaxRetries ?? 3,
     };
